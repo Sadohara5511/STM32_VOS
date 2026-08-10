@@ -1,7 +1,7 @@
 /**
- * Cortex-Mにおけるスタック初期化のポイントCortex-M（Cortex-M3/M4/M7など）は、関数呼び出しや例外発生時に特定のレジスタをスタックへ自動・手動で退避します。
+ * Cortex-Mにおけるスタック初期化のポイントCortex-M（Cortex-M3/M4/M7など）は、関数呼び出しや例外発生時に特定のレジスタをスタックへ自動・手動で退�[...]
  * タスクが初めて起動する際、あたかも「ディスパッチャ（割り込み）から復帰した」ように見せるため、
- * スタックの末尾（Cortex-Mは降順スタックのため高位アドレス側）に初期レジスタの値をあらかじめ偽装して配置（スタックの初期化）しておく必要があります。
+ * スタックの末尾（Cortex-Mは降順スタックのため高位アドレス側）に初期レジスタの値をあらかじめ偽装して配置（スタックの初期化）しておく必要[...]
  * ハードウェア自動スタック（8レジスタ）: xPSR, PC, LR, R12, R3, R2, R1, R0
  * ソフトウェア手動スタック（8レジスタ）: R11, R10, R9, R8, R7, R6, R5, R4
  * 引数の渡し方: 第一引数 argc は R0、第二引数 argv は R1 に配置してます。
@@ -202,15 +202,31 @@ bool vos_enque(VOS_TCB_t *p_que, VOS_TCB_t *p_tcb) {
     // キューが空の場合
     if (p_que->tcb_ptr == NULL) {
         p_que->tcb_ptr = p_tcb;
-    } 
-    // キューに既に要素がある場合（末尾まで線形探索）
-    //[修正]同一優先度の最後尾に追加
+    }
+    // キューに既に要素がある場合
     else {
-        VOS_TCB_t *current = p_que->tcb_ptr;
-        while (current->tcb_ptr != NULL) {
-            current = current->tcb_ptr;
+        /* タスク優先度順に挿入する（値が小さいほど高優先）。
+           同じ優先度の場合は既存のタスクの後ろに追加してFIFOを維持する。 */
+        VOS_TCB_t *prev = NULL;
+        VOS_TCB_t *curr = p_que->tcb_ptr;
+
+        // 既存タスクの優先度を見ながら挿入位置を探す。
+        // 既存の優先度が新しいタスクの優先度以下（<=）であればスキップしていき、
+        // 同優先度の最後尾の後ろに挿入されるようにする。
+        while ((curr != NULL) && (curr->task_pri <= p_tcb->task_pri)) {
+            prev = curr;
+            curr = curr->tcb_ptr;
         }
-        current->tcb_ptr = p_tcb;
+
+        if (prev == NULL) {
+            // 先頭に挿入
+            p_tcb->tcb_ptr = p_que->tcb_ptr;
+            p_que->tcb_ptr = p_tcb;
+        } else {
+            // 中間または末尾に挿入
+            p_tcb->tcb_ptr = curr;
+            prev->tcb_ptr = p_tcb;
+        }
     }
     return true;
 }
