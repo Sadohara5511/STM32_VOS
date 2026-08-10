@@ -15,11 +15,11 @@
  * 生成されたタスクは、タスク優先度順にREADYキューにエントリーされる。
  * @note タスクIDは、0：VOSアイドルタスク、1以上：ユーザタスクである。
  */
-extern int32_t vos_createTask(int32_t (*task)(int32_t, char**), uint32_t pri, uint32_t stack_size, uint32_t *stack);
+extern int32_t vos_createTask(int32_t (*task)(int32_t, char**), uint32_t pri, uint32_t stack_size, uint32_t *stack, int32_t argc, char **argv);
 
 /**
  * @function vos_startKernel
  * @brief VOSを起動する。
  * READYキュー先頭のタスクを実行状態にして、実行する。
  */
-extern void vos_startKernel(void);
+extern bool vos_startKernel(void);

@@ -1,26 +1,28 @@
 /**
- * Cortex-M�̕W���I�Ȑ݌v�ɕ킢�A�f�B�X�p�b�`���iPendSV�̋N������j��C����֐��Ƃ��ă��W���[�������A
- * ���ۂ̃R���e�L�X�g�؂�ւ���PendSV�n���h���i�A�Z���u���j�ōs���\���ɂ��Ă��܂��B
- * �܂��A���������_���Z�iFPU�j�͔�g�p�̑O��Ƃ��Ă��܂��B
+ * Cortex-Mの標準的な設計に倣い、ディスパッチャ（PendSVの起動制御）をC言語関数としてモジュール化し、
+ * 実際のコンテキスト切り替えをPendSVハンドラ（アセンブリ）で行う構成にしています。
+ * また、浮動小数点演算（FPU）は非使用の前提としています。
  */
 #include <stdint.h>
+#include "dispatcher.h"
 
-/* Cortex-M �V�X�e�����䃌�W�X�^�̒�` */
+
+/* Cortex-M システム制御レジスタの定義 */
 #define NVIC_INT_CTRL_REG      (*(volatile uint32_t *)0xE000ED04)
 #define NVIC_PENDSVSET_BIT     (1UL << 28)
 
 /**
- * @brief �^�X�N�؂�ւ��i�f�B�X�p�b�`�j��v�����郂�W���[��
- * OS�̊eAPI�i�^�X�N������E�F�C�g�Ȃǁj�̍Ō��A�^�C�}�[���荞�݂��炱�̊֐����Ăяo�����ƂŁA�^�X�N�̍ăX�P�W���[�����O�i�؂�ւ��j��v�����܂��B
- * @note ���̊֐����ĂԂ�PendSV��O���y���f�B���O����A
- *       ���̊����ݏ����Ȃǂ����ׂďI��������S�ȃ^�C�~���O��PendSV_Handler���N�����܂��B
+ * @brief タスク切り替え（ディスパッチ）を要求するモジュール
+ * OSの各API（タスク生成やウェイトなど）の最後や、タイマー割り込みからこの関数を呼び出すことで、タスクの再スケジューリング（切り替え）を要求します。
+ * @note この関数を呼ぶとPendSV例外がペンディングされ、
+ *       他の割込み処理などがすべて終わった安全なタイミングでPendSV_Handlerが起動します。
  */
 void vos_dispatch(void)
 {
-    /* PendSV��O�𔭍s�i�Z�b�g�j���� */
+    /* PendSV例外を発行（セット）する */
     NVIC_INT_CTRL_REG = NVIC_PENDSVSET_BIT;
 
-    /* �f�[�^�����o���A�i�m���ɔ��s������������j */
+    /* データ同期バリア（確実に発行を完了させる） */
     __asm volatile ("dsb" : : : "memory");
     __asm volatile ("isb" : : : "memory");
 }

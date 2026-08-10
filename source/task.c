@@ -11,6 +11,7 @@
 #include <stddef.h>
 #include "vos_config.h"
 #include "task.h"
+#include "dispatcher.h"
 
 
 /* OS全体のタスク数(ユーザータスク+IDLEタスク) */
@@ -31,14 +32,17 @@ typedef enum {
 /* 構造体の前方宣言 */
 typedef struct tag_VOS_TCB_t VOS_TCB_t;
 
+typedef struct {
+    VOS_TCB_t       *tcb_ptr;
+} VOS_QUE_HEAD_t;
+
 struct tag_VOS_TCB_t {
-    VOS_TCB_t       *tcb_ptr;       /* リストポインタ */
+    VOS_QUE_HEAD_t   next_tcb;      /* リストポインタ */
     VOS_STATE_e      task_state;    /* タスク状態 */
     uint32_t         task_pri;      /* タスク優先度 */
     uint32_t         stack_size;    /* スタック領域サイズ(単位:32bit) */
     uint32_t        *stacK_top;     /* スタック領域先頭アドレス（配列の先頭メモリ） */
     uint32_t        *task_ptr;      /* タスク実行アドレス */
-    uint32_t         reg[16];       /* ディスパッチ前のCPUレジスタ値 (R0-R15相当、またはSP保持用) */
     uint32_t        *sp;            /* 現在のスタックポインタ（独自追加：コンテキスト切り替え用） */
 };
 
@@ -48,19 +52,22 @@ struct tag_VOS_TCB_t {
  */
 typedef struct {
     bool             start_kernel;  /* カーネルStart/Stop状態 */
-    VOS_TCB_t       *run_que;       /* RUNタスク */
-    VOS_TCB_t       *ready_que;     /* READYキュー */
-    VOS_TCB_t       *wait_que;      /* WAITキュー */
-    VOS_TCB_t       *stop_que;      /* 休止状態キュー */
+    VOS_QUE_HEAD_t   run_que;       /* RUNタスク */
+    VOS_QUE_HEAD_t   ready_que;     /* READYキュー */
+    VOS_QUE_HEAD_t   wait_que;      /* WAITキュー */
+    VOS_QUE_HEAD_t   stop_que;      /* 休止状態キュー */
 } VOS_OS_CTRL_t;
 
 
 /**
  * グローバル変数定義
  */
-VOS_TASK_CTRL_t     g_vos_os_ctrl;
+VOS_OS_CTRL_t     	g_vos_os_ctrl;
 VOS_TCB_t           g_vos_tcb[VOS_TASK_NUM];
 
+/* PendSV_handler 外部参照するグローバル変数の宣言 */
+VOS_TCB_t			*g_vos_current_tcb;    /* 現在実行中のTCBへのポインタ (VOS_TCB_t*) */
+VOS_TCB_t			*g_vos_next_tcb;       /* 次に実行するTCBへのポインタ (VOS_TCB_t*) */
 
 /* エラーコードの定義 */
 #define VOS_ERR_FULL     (-1)
@@ -71,6 +78,9 @@ extern void vos_disable_dispatch(void);
 extern void vos_enable_dispatch(void);
 /* タスク終了時に呼び出されるべきシステム関数 */
 extern void vos_exitTask(void);
+/* 内部関数 */
+extern bool vos_enque(VOS_QUE_HEAD_t *que, VOS_TCB_t *p_tcb);
+extern void *vos_deque(VOS_QUE_HEAD_t *que);
 
 /**
  * @brief 新規ユーザタスクを生成して実行可能状態にする (ARM Cortex-M対応版)
@@ -112,7 +122,7 @@ int32_t vos_createTask(int32_t (*task)(int32_t, char**), uint32_t pri, uint32_t 
     }
 
     /* 4. TCBの基本情報設定 */
-    p_tcb->tcb_ptr    = NULL;
+    p_tcb->next_tcb.tcb_ptr    = NULL;
     p_tcb->task_state = VOS_STATE_READY;
     p_tcb->task_pri   = pri;
     p_tcb->stack_size = stack_size;
@@ -146,37 +156,8 @@ int32_t vos_createTask(int32_t (*task)(int32_t, char**), uint32_t pri, uint32_t 
     /* 構築したスタックの現在地(SP)をTCBに保存 */
     p_tcb->sp = p_stk;
 
-    /* 提示された構造体の要件を満たすため、reg配列にも値をコピー（任意） */
-    for (int i = 0; i < 16; i++) {
-        p_tcb->reg[i] = 0;
-    }
-    p_tcb->reg[0] = (uint32_t)argc;
-    p_tcb->reg[1] = (uint32_t)argv;
-
     /* 6. READYキューへ優先度順（値が小さいほど高優先）に挿入 */
-    if (g_vos_os_ctrl.ready_que == NULL) {
-        g_vos_os_ctrl.ready_que = p_tcb;
-    } else {
-        VOS_TCB_t *prev = NULL;
-        VOS_TCB_t *curr = g_vos_os_ctrl.ready_que;
-
-        /* 自分より優先度が低い（値が大きい）タスクの手前を探す */
-        /* 同じ優先度の場合は、既存のタスクの後ろ（FIFO）になるよう「>」判定 */
-        while ((curr != NULL) && (curr->task_pri <= pri)) {
-            prev = curr;
-            curr = curr->tcb_ptr;
-        }
-
-        if (prev == NULL) {
-            /* 先頭へ挿入（キュー内で最も高い優先度） */
-            p_tcb->tcb_ptr = g_vos_os_ctrl.ready_que;
-            g_vos_os_ctrl.ready_que = p_tcb;
-        } else {
-            /* 中間または末尾へ挿入 */
-            p_tcb->tcb_ptr = curr;
-            prev->tcb_ptr = p_tcb;
-        }
-    }
+    vos_enque(&g_vos_os_ctrl.ready_que, p_tcb);
 
     /* 7. 排他解除 */
     vos_enable_dispatch();
@@ -186,46 +167,42 @@ int32_t vos_createTask(int32_t (*task)(int32_t, char**), uint32_t pri, uint32_t 
 
 /**
  * @brief タスクを状態キューの末尾に追加する (FIFO)
- * @param p_que 対象のキュー構造体へのポインタ
+ * @param que 対象のキュー構造体へのポインタ
  * @param p_tcb 追加するTCBへのポインタ
  * @return true: 成功, false: 失敗（引数不正など）
  */
-bool vos_enque(VOS_TCB_t *p_que, VOS_TCB_t *p_tcb) {
-    // 引数チェック
-    if ((p_que == NULL) || (p_tcb == NULL)) {
-        return false;
-    }
-
+bool vos_enque(VOS_QUE_HEAD_t *que, VOS_TCB_t *p_tcb)
+{
     // 追加するTCBの次ポインタを初期化
-    p_tcb->tcb_ptr = NULL;
+    p_tcb->next_tcb.tcb_ptr = NULL;
 
     // キューが空の場合
-    if (p_que->tcb_ptr == NULL) {
-        p_que->tcb_ptr = p_tcb;
+    if (que->tcb_ptr == NULL) {
+        que->tcb_ptr = p_tcb;
     }
     // キューに既に要素がある場合
     else {
         /* タスク優先度順に挿入する（値が小さいほど高優先）。
            同じ優先度の場合は既存のタスクの後ろに追加してFIFOを維持する。 */
         VOS_TCB_t *prev = NULL;
-        VOS_TCB_t *curr = p_que->tcb_ptr;
+        VOS_TCB_t *curr = que->tcb_ptr;
 
         // 既存タスクの優先度を見ながら挿入位置を探す。
         // 既存の優先度が新しいタスクの優先度以下（<=）であればスキップしていき、
         // 同優先度の最後尾の後ろに挿入されるようにする。
         while ((curr != NULL) && (curr->task_pri <= p_tcb->task_pri)) {
             prev = curr;
-            curr = curr->tcb_ptr;
+            curr = curr->next_tcb.tcb_ptr;
         }
 
         if (prev == NULL) {
             // 先頭に挿入
-            p_tcb->tcb_ptr = p_que->tcb_ptr;
-            p_que->tcb_ptr = p_tcb;
+            p_tcb->next_tcb.tcb_ptr = que->tcb_ptr;
+            que->tcb_ptr = p_tcb;
         } else {
             // 中間または末尾に挿入
-            p_tcb->tcb_ptr = curr;
-            prev->tcb_ptr = p_tcb;
+            p_tcb->next_tcb.tcb_ptr = curr;
+            prev->next_tcb.tcb_ptr = p_tcb;
         }
     }
     return true;
@@ -236,35 +213,35 @@ bool vos_enque(VOS_TCB_t *p_que, VOS_TCB_t *p_tcb) {
  * @param p_que 対象のキュー構造体へのポインタ
  * @return 取り出したTCBへのポインタ（キューが空の場合はNULL）
  */
-void *vos_deque(VOS_TCB_t *p_que) {
-    // 引数チェック
-    if (p_que == NULL) {
-        return NULL;
-    }
+void *vos_deque(VOS_QUE_HEAD_t *que)
+{
     // 先頭のTCBを取得
-    VOS_TCB_t *p_tcb = p_que->tcb_ptr;
+    VOS_TCB_t *p_tcb = que->tcb_ptr;
     if (p_tcb == NULL) {
         return NULL;
     }
 
     // キューの先頭を次の要素に更新
-    p_que->tcb_ptr = p_tcb->tcb_ptr;
+    que->tcb_ptr = p_tcb->next_tcb.tcb_ptr;
 
-    // 取り出したTCBのリンクを切り離す
-    p_tcb->tcb_ptr = NULL;
+    // 念のため取り出したTCBのリンクを切り離す
+    p_tcb->next_tcb.tcb_ptr = NULL;
     return (void *)p_tcb;
 }
 
 /**
  * @function vos_startKernel
  * @brief VOSを起動する。
- * READYキュー先頭のタスクを実行状態にして、実行する。
+ * READYキュー先頭のタスクを実行状態にしてディスパッチ登録する。
  */
 bool vos_startKernel(void)
 {
-    VOS_TCB_t *run_que;
+    VOS_TCB_t *run_tcb;
+
     g_vos_os_ctrl.start_kernel = true;
-    run_que = vos_deque(g_vos_os_ctrl.ready_que);
-    g_vos_os_ctrl.run_que = run_que;
-    return (run_que != NULL);
+    run_tcb = vos_deque(&g_vos_os_ctrl.ready_que);
+    g_vos_os_ctrl.run_que.tcb_ptr = run_tcb;
+
+    vos_dispatch();
+    return (run_tcb != NULL);
 }
