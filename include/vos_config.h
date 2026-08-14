@@ -3,14 +3,15 @@
  * ユーザーコンフィグレーション・ファイル
  */
 
-/* ユーザータスク数 */
-#define VOS_USER_TASK_NUM       6
+/* VOSユーザーが決定する定数（リソース定数） */
+#define VOS_TASK_NUM            (3)     /* ユーザータスク数 */
+#define VOS_MSGQUE_NUM          (3)     /* メッセージキュー数 */
+#define USER_QUE1_MSGBUFF_NUM   (2)     /* メッセージキュー１のメッセージバッファ数 */
+#define USER_AUE2_MSGBUFF_NUM   (2)     /* メッセージキュー２のメッセージバッファ数 */
+#define USER_QUE3_MSGBUFF_NUM   (2)     /* メッセージキュー３のメッセージバッファ数 */
+#define VOS_TOTAL_MSG_NUM       (USER_QUE1_MSGBUFF_NUM
+                                +USER_AUE2_MSGBUFF_NUM
+                                +USER_QUE3_MSGBUFF_NUM)
 
-/* ユーザーメッセージボックス数 */
-#define VOS_MSGBOX_NUM          6
-
-/* ユーザーイベントフラグ数 */
-#define VOS_EVTFLG_NUM          0
-
-/* ユーザーセマフォ数 */
-#define VOS_SEMAPH_NUM          0
+/* VOS ユーザへ提供するデバッグ機能 */
+#define VOS_STACK_OVF_CHECK     true    /* スタック・オバーフロー・チェック */
