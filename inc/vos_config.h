@@ -14,4 +14,5 @@
                                 +USER_QUE3_MSGBUFF_NUM)
 
 /* VOS ユーザへ提供するデバッグ機能 */
-#define VOS_STACK_OVF_CHECK     true    /* スタック・オバーフロー・チェック */
+#define VOS_STACK_OVF_CHECK     true    /* スタック・オバーフロー・チェックの実施有無 */
+#define VOS_API_PARAM_CHECK     true    /* APIのパラメータチェックの実施有無*/

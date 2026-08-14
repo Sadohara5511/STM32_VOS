@@ -1,11 +1,18 @@
-<div style="font-size: 22pt;">マルチタスクOS(VOS) 設計書</div>
+# マルチタスクOS(VOS) 設計書
 
-# 目次
-- [概要](#1概要)
-    - [目的](#1-1目的)
-- [システム構成](#2システム構成)
-- [機能](#3機能)
-- [データ構造](#4データ構造)
+---
+## 目次
+- [1.概要](#1概要)
+  - [目的](#1-1目的)
+- [2.システム構成](#2システム構成)
+- [3.機能](#3機能)
+  - [3-1.タスク機能](#3-1タスク機能)
+  - [3-2.メッセージ機能](#3-2メッセージ機能)
+  - [3-3.イベントフラグ機能](#3-3イベントフラグ機能)
+  - [3-4.セマフォ機能](#3-4セマフォ機能)
+- [4.機能API](#4機能-api)
+- [5.VOS内部関数](#5vos内部関数)
+- [Appendix](#appendix)
 
 ---
 # 1.概要
@@ -17,12 +24,15 @@
 - システムTICK割り込みを使用して、同一優先度のタスクのディスパッチを実装する。
 
 ## 1-3.用語説明
-タスクの状態について、以下の状態がある。機能APIコールやディスパッチャによりタスクの状態が遷移する。
-- `未登録状態`:NON-EXIST
-- `休止状態`:DORMANT
-- `実行可能状態`:READY
-- `実行状態`:RUN
-- `待ち状態`:WAIT
+- タスク優先度
+    最低優先度は 0:IDLEタスクで、順に1~7:ユーザタスクである。
+- タスク状態
+    以下のタスク状態がある。機能APIコールやディスパッチャによりタスクの状態が遷移する。
+  - `未登録状態`:NON-EXIST
+  - `休止状態`:DORMANT
+  - `実行可能状態`:READY
+  - `実行状態`:RUN
+  - `待ち状態`:WAIT
 
 ## 1-4.基本定数・データ型
 C言語ヘッダーファイルにて以下を定義する。但し、ヘッダーファイル構成は思案中。
@@ -37,6 +47,12 @@ vos_config.h：ユーザーが定義するVOSコンフィグレーション・�
 #define VOS_TOTAL_MSG_NUM       (USER_QUE1_MSGBUFF_NUM
                                 +USER_AUE2_MSGBUFF_NUM
                                 +USER_QUE3_MSGBUFF_NUM)
+/* VOSユーザーが決定するタスク優先度範囲 */
+enum {
+    TASK_PRI_LO = 1,                    /* 最低優先度 */
+    TASK_PRI_MID = 4,
+    TASK_PRI_HI = 7                     /* 最高優先度 */
+}
 /* VOS ユーザへ提供するデバッグ機能 */
 #define VOS_STACK_OVF_CHECK     true    /* スタック・オバーフロー・チェック */
 ...
@@ -81,6 +97,8 @@ typedef struct {
 
 ---
 # 3.機能
+
+---
 ## 3-1.タスク機能
 タスク機能は、タスクの生成・スタート・ストップ・終了のアクション系APIと、タスク状態を参照するリファレンス系APIをユーザーに提供する。
 タスクは、タスク優先度を持ち優先順にタスクを動作させる。同一優先度の場合は、FIFO動作させる。
@@ -143,7 +161,6 @@ vosKernelCB_t       g_vosKernelCB;
 skinparam monochrome false
 skinparam shadowing false
 skinparam class {
-    BackgroundColor<<Structure>> #F4F6F7
     BorderColor<<Structure>> #2C3E50
     ArrowColor #34495E
 }
@@ -265,6 +282,7 @@ activate main
 @enduml
 ```
 
+---
 ## 3-2.メッセージ機能
 メッセージ機能は、タスク間のメッセージ送受信に用いる機能である。
 まず、メッセージを送受信するためのメッセージキュー(メッセージプール)を生成する必要がある。
@@ -299,13 +317,13 @@ struct tag_vosMsgHdr {
 
 typedef struct {
     vosTaskQueHdr_t wait_task;          /* 受信待ちタスクコントロールブロック・ポインタ */
-    vosMsgHdr_t     msg_que;            /* 送受信メッセージキュー */
-    vosMsgHdr_t *   msg_buff;           /* メッセージバッファ先頭ポインタ */
-    uint32_t        free_idx;           /* メッセージバッファ空きインデックス[0~msg_num-1] */
     /* メッセージプール */
     uint32_t        msg_num;            /* メッセージバッファ数 */
     uint32_t        msg_size;           /* メッセージバッファ１つのサイズ */
     uint32_t *      msg_pool;           /* メッセージバッファ領域 */
+    vosMsgHdr_t *   msg_buff;           /* メッセージバッファ先頭ポインタ */
+    uint32_t        free_idx;           /* メッセージバッファ空きインデックス[0~msg_num-1] */
+    vosMsgHdr_t     msg_que;            /* 送受信メッセージキュー */
 } vosMsgCB_t;
 
 /* 各種コントロールブロック変数宣言 */
@@ -317,7 +335,6 @@ vosMsgCB_t          g_vosMsgCB[VOS_MSGQUE_NUM];
 skinparam monochrome false
 skinparam shadowing false
 skinparam class {
-    BackgroundColor White
     ArrowColor #333333
     BorderColor #555555
 }
@@ -436,6 +453,11 @@ deactivate pool
 **機能補足**
 VOSでは可変長メッセージ機能は実装しない。可変長データはユーザーがリングバッファを用意してリードポインタとライトポインタでバッファリングする方法がリーズナブルでかつベスト選択だと思われるからである。
 
+---
+# 以下、仕様未確定、設計未確定 事項
+---
+
+---
 ## 3-3.イベントフラグ機能
 仕様未確定
 ### 3-3-1.API設計
@@ -450,9 +472,6 @@ struct tag_vosEvtCB {
 ```
 
 ---
-# 以下、仕様未確定、設計未確定 事項
----
-
 ## 3-4.セマフォ機能
 仕様未確定
 ### 3-4-1.API設計
@@ -466,13 +485,19 @@ struct tag_vosSemCB {
 };
 ```
 
+---
 ## 3-5.タスク・ディスパッチ機能
+vosDispatch()
+vosPendSVHandler 割り込みハンドラ
 仕様未確定
 
+---
 ## 3-6.VOS Tick機能
+vosSysTickHandler 割り込みハンドラ
 仕様未確定
 
 
+---
 # 4.機能 API
 ## 4-1.タスクの生成
 **プロトタイプ**
@@ -501,8 +526,39 @@ vosTaskHandle_t  vosCreateTask(int32_t (*task)(int32_t, char**), uint32_t pri, u
 
 
 ---
+# 5.VOS内部関数
+
+---
+## 5-1.タスクキュー操作
+### 5-1-1.タスクキュー・エンキュー
+タスク優先度順の線形リストに対象を繋ぐ。キューの終端は、VOS_END_PTRをセットする。
+void vosTaskEnque(vosTaskQueHdr_t * hdr_ptr, vosTaskCB_t * task_ptr);
+### 5-1-2.タスクキュー・デキュー
+タスク優先度順の線形リストの先頭データを外す。キューの終端は、VOS_END_PTRである。
+vosTaskCB_t * vosTaskDeque(vosTaskQueHdr_t * hdr_ptr);
+### 5-1-3.対象タスク・デキュー
+タスクキューから対象データを外す。キューの終端は、VOS_END_PTRである。
+bool vosTargetTaskDeque(vosTaskQueHdr_t * hdr_ptr, vosTaskCB_t * task_ptr);
+
+---
+## 5-2.メッセージキュー操作
+### 5-2-1.メッセージキュー・エンキュー
+void vosMsgEnque(vosMsgHdr_t * hdr_ptr, vosMsgCB_t * msg_ptr);
+### 5-2-2.メッセージキュー・デキュー
+vosMsgCB_t * vosMsgDeque(vosMsgHdr_t * hdr_ptr);
+
+---
+## 5-3.メモリ操作
+### 5-3-1.32bitメモリフィル
+voud vosMemset(uint32_t * des, uint32_t fill, uint32_t byte_sz);
+### 5-3-2.32bitメモリコピー
+voud vosMemcpy(uint32_t * des, uint32_t * src, uint32_t byte_sz);
+
+
+---
 # Appendix
 ## PendSV例外を使用するディスパッチャ―
+vosPendSVHandler 割り込みハンドラ
 - 1.vosDispatch() がコールされると、CPUに「PendSV例外発行」を依頼する。
 - 2.他の優先度の高い割り込み（タイマーなど）がなければ、即座に PendSV_Handler が起動します。
 - 3.ハンドラ起動時、Cortex-M仕様により、自動的にその時点のCPUレジスタである R0-R3, R12, LR, PC, xPSR がスタック（PSP）に自動保存されます。
@@ -510,4 +566,5 @@ vosTaskHandle_t  vosCreateTask(int32_t (*task)(int32_t, char**), uint32_t pri, u
 - 5.動かしたいタスクのスタックから逆の手順でレジスタを復元し、bx lr で元のタスク空間へジャンプします。
 
 ## SysTickタイマー割り込みを使用するVOS TICk
+vosSysTickHandler 割り込みハンドラ
 - SysTickを用いて一定時間ごとにタスクを切り替える（ラウンドロビン・タイムスライス）ための仕組みの追加
