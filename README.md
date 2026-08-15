@@ -98,15 +98,126 @@ typedef struct {
 ---
 # 3.機能
 
+## 3-1.カーネル
+カーネル（Kernel）は、当マルチタスク・オペレーティングシステム（VOS）の中核となるソフトウェアである。
+タスクのディスパッチや割り込みハンドラの実装を担当する。通常OSが管理するメモリ管理機能等々は各種機能にてユーザー提供する。
+
+### 3-1-1.API設計
+カーネルAPIの概要を以下に示す。
+- カーネル初期化：vosInitKernel関数
+    カーネル変数や各種機能変数を初期化する。
+- カーネルスタート：vosStartKernel関数
+    `実行可能状態`タスクを`実行状態`タスクへ遷移する。もし`実行可能状態`タスクがない場合、即リターンする。
+- タスク・ディスパッチャー：vosDispatch関数
+    詳細仕様未定
+- コンテキストスイッチ：vosPendSVHandler 割り込みハンドラ
+    タスク切り替え。
+- システムタイマ：vosSysTickHandler 割り込みハンドラ
+    仕様未定
+
+### 3-1-2.データ設計
+```
+/* カーネルコントロールブロック */
+typedef struct {
+    bool            start_kernel;       /* カーネルStart/Stop */
+    vosTaskQueHdr_t run_task;           /* RUNタスク */
+    vosTaskQueHdr_t ready_que;          /* READYキュー */
+    vosTaskQueHdr_t wait_que;           /* WAITキュー */
+    vosTaskQueHdr_t stop_que;           /* STOPキュー */
+} vosKernelCB_t;
+
+/* カーネルコントロールブロック変数宣言 */
+vosKernelCB_t       g_vosKernelCB;
+```
+
+**g_vosKernelCB変数更新表**
+<table>
+  <tr>
+    <th>変数/メンバー変数</th>
+    <th>更新関数</th>
+    <th>説明</th>
+  </tr>
+
+  <tr>
+    <td>g_vosKernelCB</td>
+    <td>all-0: vosInitKernel()</td>
+    <td>初期設定</td>
+  </tr>
+
+  <tr>
+    <td>.start_kernel</td>
+    <td>true: vosStartKernel()</td>
+    <td>カーネルスタート後に設定</td>
+  </tr>
+
+  <tr>
+    <td rowspan="3">.run_task</td>
+    <td>vosTaskHandle_t 値: vosStartKernel()</td>
+    <td>READYキューの先頭タスクを移動</td>
+  </tr>
+  <tr>
+    <td>vosTaskHandle_t 値: vosExitTask()</td>
+    <td>READYキューの先頭タスクを移動</td>
+  </tr>
+  </tr>
+  <tr>
+    <td>NULL: vosExitTask()</td>
+    <td>READYキューが空（NUL/VOS_END_PTR）の場合</td>
+  </tr>
+
+  <tr>
+    <td rowspan="4">.ready_que</td>
+    <td>vosTaskHandle_t 値: vosStartTask()</td>
+    <td>引数のタスクを繋げる</td>
+  </tr>
+  <tr>
+    <td>vosTaskHandle_t 値: vosSendMsg()</td>
+    <td>引数のメッセージをReceive待ちしているタスクを当該キューから移動</td>
+  </tr>
+  <tr>
+    <td>vosTaskHandle_t 値: vosSetEvt()</td>
+    <td>引数のイベントフラグをWait待ちしているタスクを当該キューから移動</td>
+  </tr>
+  <tr>
+    <td>vosTaskHandle_t 値: vosGiveSem()</td>
+    <td>引数のセマフォをTake待ちしているタスクを当該キューから移動</td>
+  </tr>
+
+  <tr>
+    <td rowspan="3">.wait_que</td>
+    <td>vosTaskHandle_t 値: vosReceiveMsg()</td>
+    <td rowspan="3">RUNタスクから移動</td>
+  </tr>
+  <tr>
+    <td>vosTaskHandle_t 値: vosWaitEvt()</td>
+  </tr>
+  <tr>
+    <td>vosTaskHandle_t 値: vosTakeSem()</td>
+  </tr>
+
+  <tr>
+    <td>.stop_que</td>
+    <td>vosTaskHandle_t 値: vosStopTask()</td>
+    <td>引数のタスクを当該キューから移動</td>
+  </tr>
+
+  <tr>
+    <td></td>
+    <td></td>
+    <td></td>
+  </tr>
+</table>
+
+
 ---
-## 3-1.タスク機能
+## 3-2.タスク機能
 タスク機能は、タスクの生成・スタート・ストップ・終了のアクション系APIと、タスク状態を参照するリファレンス系APIをユーザーに提供する。
 タスクは、タスク優先度を持ち優先順にタスクを動作させる。同一優先度の場合は、FIFO動作させる。
 
 タスク機能がタスクコントロールブロックを管理し、カーネルがタスク状態キューを管理する。
 タスク状態は、READYキュー、WAITキューを実装し、RUN状態はTCBポインタのみ、DORMANTはキュー無し実装である。
 
-### 3-1-1.API設計
+### 3-2-1.API設計
 タスク機能APIの概要を以下に示す。
 - タスク生成：vosCreateTask関数
     引数は、タスク関数、スタックサイズ、スタック領域（、スタート指示）である。
@@ -121,20 +232,20 @@ typedef struct {
     引数なし。自タスクを終了する。
     自タスクのタスクコントロールブロックを解放する。
 
-### 3-1-2.データ設計
+### 3-2-2.データ設計
 ```
 /* タスクコントロールブロック */
 struct tag_vosTaskCB {
-    vosTaskCB_t *   next_ptr;           /* タスクコントロールブロック・リストポインタ */
+    vosTaskCB_t*    next_ptr;           /* タスクコントロールブロック・リストポインタ */
     union {
-        vosMsgCB_t * msg_cb;            /* メッセージキュー */
-        vosEvtCB_t * evt_cb;            /* イベントフラグ */
-        vosSemCB_t * sem_cd;            /* セマフォ */
+        vosMsgCB_t* msg_cb;             /* メッセージキュー */
+        vosEvtCB_t* evt_cb;             /* イベントフラグ */
+        vosSemCB_t* sem_cd;             /* セマフォ */
     }wait_svc;                          /* 受信待ちサービス */
     uint32_t        task_pri;           /* タスク優先度 */
     uint32_t        stack_size;         /* スタック領域サイズ(単位:32bit) */
-    uint32_t *      stacK_top;          /* スタック領域先頭アドレス */
-    uint32_t *      task_func;          /* タスク実行アドレス */
+    uint32_t*       stacK_top;          /* スタック領域先頭アドレス */
+    uint32_t*       task_func;          /* タスク実行アドレス */
 };
 
 /* タスク状態キュー */
@@ -142,83 +253,12 @@ typedef struct {
     vosTaskCB_t *   next_ptr;    
 } vosTaskQueHdr_t;
 
-/* カーネルコントロールブロック */
-typedef struct {
-    bool            start_kernel;       /* カーネルStart/Stop */
-    vosTaskQueHdr_t run_task;           /* RUNタスク */
-    vosTaskQueHdr_t ready_que;          /* READYキュー */
-    vosTaskQueHdr_t wait_que;           /* WAITキュー */
-    vosTaskQueHdr_t stop_que;           /* STOPキュー */
-} vosKernelCB_t;
-
 /* 各種コントロールブロック変数宣言 */
 vosTaskCB_t         g_vosTaskCB[VOS_TASK_NUM];
-vosKernelCB_t       g_vosKernelCB;
 ```
 
-```plantuml
-@startuml
-skinparam monochrome false
-skinparam shadowing false
-skinparam class {
-    BorderColor<<Structure>> #2C3E50
-    ArrowColor #34495E
-}
 
-package "構造体定義" {
-
-    ' タスクコントロールブロック (TCB)
-    class "vosTaskCB_t" as TCB <<Structure>> {
-        + vosTaskCB_t * next_ptr
-        + uint32_t task_pri
-        + uint32_t stack_size
-        + uint32_t * stack_top
-        + uint32_t * task_func
-    }
-
-    ' タスク状態キュー
-    class "vosTaskQueHdr_t" as QueHdr <<Structure>> {
-        + vosTaskCB_t * next_ptr
-    }
-
-    ' カーネルコントロールブロック
-    class "vosKernelCB_t" as KernelCB <<Structure>> {
-        + bool start_kernel
-        + vosTaskQueHdr_t run_task
-        + vosTaskQueHdr_t ready_que
-        + vosTaskQueHdr_t wait_que
-        + vosTaskQueHdr_t stop_que
-    }
-}
-
-package "グローバル変数" {
-    object "g_vosKernelCB" as g_kernel {
-        start_kernel = false / true
-    }
-    
-    object "g_vosTaskCB[VOS_TASK_NUM]" as g_tcb_array {
-        [0] : vosTaskCB_t
-        [1] : vosTaskCB_t
-        ...
-    }
-}
-
-' 関係性の定義
-TCB "1" --> "0..1" TCB : next_ptr (単方向リスト)
-QueHdr "1" --> "0..1" TCB : next_ptr (キューの先頭タスク)
-
-KernelCB *-- QueHdr : run_task
-KernelCB *-- QueHdr : ready_que
-KernelCB *-- QueHdr : wait_que
-KernelCB *-- QueHdr : stop_que
-
-g_kernel ..> KernelCB : 構造体変数
-g_tcb_array ..> TCB : 配列実体
-
-@enduml
-```
-
-### 3-1-3.APIコーリングシーケンス例
+### 3-2-3.APIコーリングシーケンス例
 タスク機能APIのコーリングシーケンス例を以下に示す。
 ```plantuml
 @startuml
@@ -283,13 +323,13 @@ activate main
 ```
 
 ---
-## 3-2.メッセージ機能
+## 3-3.メッセージ機能
 メッセージ機能は、タスク間のメッセージ送受信に用いる機能である。
 まず、メッセージを送受信するためのメッセージキュー(メッセージプール)を生成する必要がある。
 メッセージキューは、メッセージのデータサイズとデータ個数とデータバッファ領域を用意して生成する（データバッファ領域＝データサイズ×データ個数）。
 メッセージキューには、固定長メッセージデータプール機能を内包しており、メッセージ送受信時のデータコピーを無くすことも可能なインタフェース（vosAssignMsgBuffer関数、vosReleaseMsgBuffer関数）を備えている。メッセージ送信側タスクと受信側タスク間でメッセージバッファの整合（Assign/Release）が必要がないインタフェースも備えている。どちらを選択するかはvosコンフィグレーションファイル(vos_config.h)で指定する。
 
-### 3-2-1.API設計
+### 3-3-1.API設計
 メッセージ機能APIの概要を以下に示す。
 - メッセージキュー生成：vosCreateMsgQue関数
     引数は、メッセージキュー数、メッセージデータサイズ、メッセージデータ領域（メッセージプール領域）である。
@@ -306,7 +346,7 @@ activate main
 - メッセージバッファ解放：vosReleaseMsgBuffer関数
     引数は、メッセージキューハンドル、vosAssignMsgBuffer関数で得て解放するメッセージバッファである。
 
-### 3-2-2.データ設計
+### 3-3-2.データ設計
 ```
 /* メッセージコントロールブロック */
 typedef struct tag_vosMsgHdr vosMsgHdr_t;
@@ -330,60 +370,8 @@ typedef struct {
 vosMsgHdr_t         g_vosMsgBuff_t[VOS_TOTAL_MSG_NUM]
 vosMsgCB_t          g_vosMsgCB[VOS_MSGQUE_NUM];
 ```
-```plantuml
-@startuml
-skinparam monochrome false
-skinparam shadowing false
-skinparam class {
-    ArrowColor #333333
-    BorderColor #555555
-}
 
-package "構造体定義" {
-
-    class "vosMsgHdr_t (tag_vosMsgHdr)" as vosMsgHdr <<struct>> {
-        + next_ptr : vosMsgHdr_t*
-        + msg_ptr : uint32_t*
-    }
-
-    class "vosMsgCB_t / vosMsgHandle_t" as vosMsgCB <<struct>> {
-        + wait_task : vosTaskQueHdr_t
-        + msg_que : vosMsgHdr_t
-        + msg_buff : vosMsgHdr_t*
-        + free_idx : uint32_t
-        -- メッセージプール --
-        + msg_num : uint32_t
-        + msg_size : uint32_t
-        + msg_pool : uint32_t*
-    }
-
-}
-
-package "グローバル変数" {
-    
-    object "g_vosMsgBuff_t [VOS_TOTAL_MSG_NUM]" as g_vosMsgBuff_t {
-        メッセージバッファ管理配列
-    }
-
-    object "g_vosMsgCB [VOS_MSGQUE_NUM]" as g_vosMsgCB {
-        メッセージキューコントロールブロック配列
-    }
-
-}
-
-' 構造体内部の自己参照や相互関係
-vosMsgHdr::next_ptr --> vosMsgHdr : チェイン
-vosMsgCB::msg_que "1" *-- vosMsgHdr : 包含
-vosMsgCB::msg_buff --> vosMsgHdr : ポインタ参照
-
-' 変数と型のリレーション
-g_vosMsgBuff_t ..> vosMsgHdr : 型は vosMsgHdr_t
-g_vosMsgCB ..> vosMsgCB : 型は vosMsgCB_t
-
-@enduml
-```
-
-### 3-2-3.APIコーリングシーケンス例
+### 3-3-3.APIコーリングシーケンス例
 メッセージデータコピー無しのメッセージ機能APIのコーリングシーケンス例を下図に示す。
 ```plantuml
 @startuml
@@ -458,11 +446,11 @@ VOSでは可変長メッセージ機能は実装しない。可変長データ�
 ---
 
 ---
-## 3-3.イベントフラグ機能
+## 3-4.イベントフラグ機能
 仕様未確定
-### 3-3-1.API設計
+### 3-4-1.API設計
 未確定
-### 3-3-2.データ設計
+### 3-4-2.データ設計
 未確定
 ```
 /* イベントフラグコントロールブロック */
@@ -472,11 +460,11 @@ struct tag_vosEvtCB {
 ```
 
 ---
-## 3-4.セマフォ機能
+## 3-5.セマフォ機能
 仕様未確定
-### 3-4-1.API設計
+### 3-5-1.API設計
 未確定
-### 3-4-2.データ設計
+### 3-5-2.データ設計
 未確定
 ```
 /* セマフォコントロールブロック */
@@ -484,17 +472,6 @@ struct tag_vosSemCB {
     int32_t         sem_cnt;            /* セマフォカウンタ */
 };
 ```
-
----
-## 3-5.タスク・ディスパッチ機能
-vosDispatch()
-vosPendSVHandler 割り込みハンドラ
-仕様未確定
-
----
-## 3-6.VOS Tick機能
-vosSysTickHandler 割り込みハンドラ
-仕様未確定
 
 
 ---
@@ -506,23 +483,59 @@ vosTaskHandle_t  vosCreateTask(int32_t (*task)(int32_t, char**), uint32_t pri, u
 ```
 
 **パラメータ**
-```
-[in] task(int32_t argc, char **argv):タスクの関数アドレス
-[in] pri:タスクの優先度
-[in] stack_size:タスクのスタックサイズ
-[in] stack:タスクのスタック領域
-```
-
+    [in] task(int32_t argc, char **argv):タスクの関数アドレス
+    [in] pri:タスクの優先度
+    [in] stack_size:タスクのスタックサイズ
+    [in] stack:タスクのスタック領域
 **リターン**
-0以外:生成成功。生成したタスクハンドルを返す。
-0:失敗。失敗要因は getError()で取得する。[エラー一覧](#6-1エラー一覧)参照。
-
+    0以外:生成成功。生成したタスクハンドルを返す。
+    0:失敗。失敗要因は getError()で取得する。[エラー一覧](#6-1エラー一覧)参照。
 **機能説明**
-タスクの状態が`未登録状態`から`休止状態`あるいは`実行可能状態`に遷移する。vosStartKernel()が実行されてない状態では、タスクは`未登録状態`から`休止状態`に遷移するだけですが、vosStartKernel()実行後は`休止状態`から`実行可能状態`に自動遷移する。
-
+    タスクの状態が`未登録状態`から`休止状態`に遷移する。
 **補足説明**
-実装としては、タスクはタスクコントロールブロック(TCB)に割り当てられ、READYキューに優先度順に並べられる。
-カーネルがstartしている場合、ディスパッチャーによりタスクのディスパッチが発生する可能性がある。
+    実装としては、タスクはタスクコントロールブロック(TCB)に割り当てられる。
+
+## 4-2.タスクスタート
+**プロトタイプ**
+```
+bool vosStartTask(vodTaskHandle_t handle);
+```
+**パラメータ**
+    [in] handle: スタートするタスクハンドル
+**リターン**
+    true    成功
+    false   失敗（パラメータエラー）
+**機能説明**
+    タスクの状態が`休止状態`から`実行可能状態`に遷移する。もしvosStartKernel実行中でかつ実行中のタスクより高優先度の場合、当該タスクにディスパッチする。
+**補足説明**
+    タスクハンドルのTCBをREADYキューに繋げ、カーネルがスタート状態ならRUNタスク優先度と比較し、自タスクが高優先の場合、ディスパッチャーをコールする。
+
+## 4-3.タスクストップ
+**プロトタイプ**
+bool vosStopTask(vodTaskHandle_t handle);
+**パラメータ**
+　   [in] handle: ストップするタスクハンドル
+**リターン**
+    true    成功
+    false   失敗（パラメータエラー）
+**機能説明**
+    当該タスクの状態が`休止状態`に遷移する。当該タスクが`実行状態`の場合、ディスパッチが発生する。
+**補足説明**
+    タスクハンドルのタスクコントロールブロックをキューから外す。当該タスクがRUNタスクの場合、ディスパッチャーをコールする。
+
+## 4-4.タスク終了
+**プロトタイプ**
+```
+void vosExitTask(void);
+```
+**パラメータ**
+    なし。
+**リターン**
+    なし。
+**機能説明**
+    自タスクを終了する。全てのタスクが終了した場合、vosStartKernel()がリターンする。
+**補足説明**
+    自タスクのタスクコントロールブロックを初期化する。全てのタスクが終了した場合、vosStartKernel()からリターンする。
 
 
 ---
