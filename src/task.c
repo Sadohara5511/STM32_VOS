@@ -1,6 +1,5 @@
-#include <stdio.h>
+#include <stddef.h>
 #include <stdint.h>
-//#include <stddef.h>
 #include <stdbool.h>
 #include "vos_config.h"
 #include "vos.h"

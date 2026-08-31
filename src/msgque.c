@@ -1,4 +1,4 @@
-#include <stdio.h>
+#include <stddef.h>
 #include <stdint.h>
 #include <stdbool.h>
 #include "vos_config.h"
