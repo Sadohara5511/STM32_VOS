@@ -84,7 +84,7 @@ typedef enum {
     VOS_ERR_PARAM = -1,                 /* パラメータエラー */
     VOS_ERR_RESOURCE = -2,              /* リソース超過 */
     VOS_ERR_OVER_RES = -3,              /* リソース超過指定 */
-} vosErr_e;
+} vosError_e;
 ...
 
 /* VOS基本データ型(ビルド時の構造体前方宣言) */
@@ -163,7 +163,7 @@ typedef struct {
     **機能説明**
         タスク・ディスパッチ割り込みハンドラ
         RUNキューのタスクは、タスク次遷移先がREADYキューまたはWAITキュー等の遷移先キューに移動する。
-        外部変数g_vosDispachTaskのタスクハンドルをRUNキューに繋げる。
+        外部変数g_vosDispatchTaskのタスクハンドルをRUNキューに繋げる。
     **補足説明**
         ソースは、Arm Cortex-M3,4アーキテクチャアセンブラで記述する。
 
@@ -178,7 +178,7 @@ typedef struct {
         READYキュータスクの優先度が同一優先度以上ならRUNキューからREADYキューに繋ぎ替え、READYキュー先頭のタスクはRUNキューに繋げるための準備を行い、
         PendSV割り込みを発生させる。
     **補足説明**
-        タスク・ディスパッチの準備とは、RUNキューのタスクの次遷移先にREADYキューをセットする。READYキュー先頭のタスクを外し、外部変数g_vosDispachTaskにタスクハンドルをセットする。
+        タスク・ディスパッチの準備とは、RUNキューのタスクの次遷移先にREADYキューをセットする。READYキュー先頭のタスクを外し、外部変数g_vosDispatchTaskにタスクハンドルをセットする。
 
 
 ### 3-1-2.データ設計
@@ -196,7 +196,7 @@ typedef struct {
 /* カーネルコントロールブロック変数宣言 */
 vosKernelCB_t       g_vosKernelCB;
 /* 次ディスパッチタスク */
-vosTaskCB_t*        g_vosDispachTask;
+vosTaskCB_t*        g_vosDispatchTask;
 ```
 
 ---
@@ -212,7 +212,7 @@ vosTaskCB_t*        g_vosDispachTask;
 - タスク生成 [API]
     **プロトタイプ**
     ```
-    vosTaskHandle_t  vosTaskCreate(int32_t (*task)(int32_t, char**), uint32_t pri, uint32_t stack_size, uint32_t *stack);
+    vosTaskHandle_t  vosTaskCreate(void (*task)(int32_t, char**), uint32_t pri, uint32_t stack_size, uint32_t *stack);
     ```
     **パラメータ**
         [in] task(int32_t argc, char **argv):タスクの関数アドレス
@@ -295,7 +295,7 @@ struct tag_vosTaskCB {
         vosSemCB_t* sem_cd;             /* セマフォ */
     }wait_svc;                          /* 受信待ちサービス */
     uint32_t        task_pri;           /* タスク優先度 */
-    uint32_t*       task_func;          /* タスク実行アドレス */
+    void            (*task)(int32_t, char**);          /* タスク実行アドレス */
     vosError_e      api_err;            /* 機能APIのエラーコード */
     uint32_t        stack_size;         /* スタック領域サイズ(単位:32bit) */
     uint32_t*       stacK_top;          /* スタック領域先頭アドレス */
