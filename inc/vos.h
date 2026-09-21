@@ -5,18 +5,22 @@
 #define _VOS_H_
 
 #include <stddef.h>
+#include <stdint.h>
 #include "vos_config.h"
 
 /* VOS基本定数・データ型 */
-#define VOS_END_PTR     (void*)(-1)     /* 端点(番人)ポインタ値 */
+#define VOS_END_PTR     (void*)(-1)     /* リストの端点(番人)ポインタ値 */
 #define NUL             (NULL)          /* 初期ポインタ値 */
 
 /* VOS APIのエラーリターンコード */
 typedef enum {
     VOS_OK = 0,
-    VOS_ERR_PARAM = -1,                 /* パラメータエラー */
-    VOS_ERR_RESOURCE = -2,              /* リソース不足 */
-    VOS_ERR_OVER_RES = -3,              /* リソース超過 */
+    VOS_INVALID_PARAM = -1,             /* APIパラメータ不正 */
+    VOS_INVALID_HANDLE = -2,            /* 無効なハンドル */
+    VOS_MSG_QUEUE_FULL = -3,            /* メッセージキューがFULL */
+    VOS_MSG_BUFF_EMPTY = -4,            /* メッセージバッファがEMPTY */
+    VOS_NO_RESOURCE = -5,               /* リソース不足 */
+    VOS_OVER_RESOURCE = -6,             /* リソース超過 */
 } vosError_e;
 
 /* VOS基本データ型(ビルド時の構造体前方宣言) */
@@ -35,7 +39,7 @@ typedef struct {
     vosTaskQueHdr_t run_task;           /* RUNタスク */
     vosTaskQueHdr_t ready_que;          /* READYキュー */
     vosTaskQueHdr_t wait_que;           /* WAITキュー */
-    vosTaskQueHdr_t stop_que;           /* STOPキュー */
+    vosTaskQueHdr_t dormant_que;        /* DORMANTキュー */
 } vosKernelCB_t;
 
 /* カーネルコントロールブロック変数宣言 */

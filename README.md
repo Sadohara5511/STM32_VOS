@@ -37,36 +37,41 @@
 - タスク状態
     以下のタスク状態がある。機能APIコールやディスパッチャによりタスクの状態が遷移する。
   - `未登録状態`:NON-EXIST
-  - `休止状態`:DORMANT
-  - `実行可能状態`:READY
-  - `実行状態`:RUN
-  - `待ち状態`:WAIT
+  - `休止状態`:DORMANT、DORMANTキュー
+  - `実行可能状態`:READY、READYキュー
+  - `実行状態`:RUN、RUNタスク
+  - `待ち状態`:WAIT、WAITキュー
 - インタフェース
   - [API] :アプリ層に提供する関数インタフェース
   - [外部I/F] :VOS内部の他機能やハードウェアに提供する(関数)インタフェース
   - [内部I/F] :機能内の関数インタフェース
 
 ## 1-4.基本定数・データ型
-C言語ヘッダーファイルにて以下を定義する。但し、ヘッダーファイル構成は思案中。
+C言語ヘッダーファイルにて以下を定義する。
 vos_config.h：ユーザーが定義するVOSコンフィグレーション・ヘッダーファイル
 ```
 /* VOSユーザーが決定する定数（リソース定数） */
 #define VOS_TASK_NUM            (3)     /* ユーザータスク数 */
 #define VOS_MSGQUE_NUM          (3)     /* メッセージキュー数 */
-#define USER_QUE1_MSGBUFF_NUM   (2)     /* メッセージキュー１のメッセージバッファ数 */
-#define USER_QUE2_MSGBUFF_NUM   (2)     /* メッセージキュー２のメッセージバッファ数 */
-#define USER_QUE3_MSGBUFF_NUM   (2)     /* メッセージキュー３のメッセージバッファ数 */
-#define VOS_TOTAL_MSG_NUM       (USER_QUE1_MSGBUFF_NUM
-                                +USER_AUE2_MSGBUFF_NUM
-                                +USER_QUE3_MSGBUFF_NUM)
 #define VOS_EVT_NUM             (2)     /* イベントフラグ数 */
 #define VOS_SEM_NUM             (2)     /* セマフォ数 */
+#define VOS_QUE1_MSGBUFF_NUM    (2)     /* メッセージキュー１のメッセージバッファ数 */
+#define VOS_QUE2_MSGBUFF_NUM    (2)     /* メッセージキュー２のメッセージバッファ数 */
+#define VOS_QUE3_MSGBUFF_NUM    (2)     /* メッセージキュー３のメッセージバッファ数 */
+#define VOS_TOTAL_MSGBUFF_NUM   (VOS_QUE1_MSGBUFF_NUM
+                                +VOS_QUE2_MSGBUFF_NUM
+                                +VOS_QUE3_MSGBUFF_NUM)
+
+/* VOSユーザーが決定するディスパッチ方式 */
+#define VOS_EVENT_DRIVEN        (1)
+#define VOS_TIME_SLICE          (2)
+#define VOS_DISPATCH            VOS_EVENT_DRIVEN
 
 /* VOSユーザーが決定するタスク優先度範囲 */
 enum {
-    TASK_PRI_LO = 1,                    /* 最低優先度 */
-    TASK_PRI_MID = 4,
-    TASK_PRI_HI = 7                     /* 最高優先度 */
+    VOS_TASK_PRI_LO = 1,                /* 最低優先度 */
+    VOS_TASK_PRI_MID = 4,
+    VOS_TASK_PRI_HI = 7                 /* 最高優先度 */
 }
 /* VOS ユーザへ提供するデバッグ機能 */
 #define VOS_STACK_OVF_CHECK     true    /* スタック・オバーフロー・チェック */
@@ -75,15 +80,19 @@ enum {
 
 vos.h：VOSヘッダーファイル
 /* VOS基本定数・データ型 */
-#define VOS_END_PTR     (void*)(-1)     /* 端点(番人)ポインタ値 */
+#define VOS_END_PTR     (void*)(-1)     /* リストの端点(番人)ポインタ値 */
 #define NUL             (NULL)          /* 初期ポインタ値 */
 ...
 
 /* VOS APIのエラーコード */
 typedef enum {
-    VOS_ERR_PARAM = -1,                 /* パラメータエラー */
-    VOS_ERR_RESOURCE = -2,              /* リソース超過 */
-    VOS_ERR_OVER_RES = -3,              /* リソース超過指定 */
+    VOS_OK = 0,
+    VOS_INVALID_PARAM = -1,             /* APIパラメータ不正 */
+    VOS_INVALID_HANDLE = -2,            /* 無効なハンドル */
+    VOS_MSG_QUEUE_FULL = -3,            /* メッセージキューがFULL */
+    VOS_MSG_BUFF_EMPTY = -4,            /* メッセージバッファがEMPTY */
+    VOS_NO_RESOURCE = -5,               /* リソース不足 */
+    VOS_OVER_RESOURCE = -6,             /* リソース超過 */
 } vosError_e;
 ...
 
@@ -638,9 +647,15 @@ voud vosMemcpy(uint32_t * des, uint32_t * src, uint32_t byte_sz);
 # 5.エラーコード
 自タスクがコールした機能APIのエラーコードを示す。
 ## 5-1.エラー一覧
-|コード|定数名           |説明                 |
-|-----|-----------------|--------------------|
-| -1  |VOS_ERR_PARAM    |APIパラメータエラー   |
+|コード  |定数名             |説明                  |
+|-------|-------------------|----------------------|
+|  0    |VOS_OK             |エラーなし             |
+| -1    |VOS_INVALID_PARAM  |APIパラメータ不正      |
+| -2    |VOS_INVALID_HANDLE |無効なハンドル         |
+| -3    |VOS_MSG_QUEUE_FULL |メッセージキューがFULL |
+| -4    |VOS_MSG_BUFF_EMPTY |メッセージバッファがEMPTY |
+| -5    |VOS_NO_RESOURCE    |リソース不足           |
+| -6    |VOS_OVER_RESOURCE  |リソース超過           |
 
 ---
 # Appendix
@@ -655,6 +670,7 @@ vosPendSVHandler 割り込みハンドラ
 ## SysTickタイマー割り込みを使用するタイマー検討
 vosSysTickHandler 割り込みハンドラ
 - SysTickを用いて一定時間ごとにタスクを切り替える（ラウンドロビン・タイムスライス）ための仕組みの追加
+    vos_config.hにて定義、その定義に従う
 
 ## 動作確認
 **g_vosKernelCB変数更新表**

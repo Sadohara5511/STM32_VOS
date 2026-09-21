@@ -2,27 +2,31 @@
  * マルチタスクOS(VOS) 
  * ユーザーコンフィグレーション・ファイル
  */
-/**
 #ifndef _VOS_CONFIG_H_
 #define _VOS_CONFIG_H_
 
 /* VOSユーザーが決定する定数（リソース定数） */
 #define VOS_TASK_NUM            (3)     /* ユーザータスク数 */
 #define VOS_MSGQUE_NUM          (3)     /* メッセージキュー数 */
-#define USER_QUE1_MSGBUFF_NUM   (2)     /* メッセージキュー１のメッセージバッファ数 */
-#define USER_QUE2_MSGBUFF_NUM   (2)     /* メッセージキュー２のメッセージバッファ数 */
-#define USER_QUE3_MSGBUFF_NUM   (2)     /* メッセージキュー３のメッセージバッファ数 */
-#define VOS_TOTAL_MSG_NUM       (USER_QUE1_MSGBUFF_NUM
-                                +USER_AUE2_MSGBUFF_NUM
-                                +USER_QUE3_MSGBUFF_NUM)
 #define VOS_EVT_NUM             (1)     /* イベントフラグ数 */
 #define VOS_SEM_NUM             (1)     /* セマフォ数 */
+#define VOS_QUE1_MSGBUFF_NUM    (2)     /* メッセージキュー１のメッセージバッファ数 */
+#define VOS_QUE2_MSGBUFF_NUM    (2)     /* メッセージキュー２のメッセージバッファ数 */
+#define VOS_QUE3_MSGBUFF_NUM    (2)     /* メッセージキュー３のメッセージバッファ数 */
+#define VOS_TOTAL_MSG_NUM       (VOS_QUE1_MSGBUFF_NUM
+                                +VOS_QUE2_MSGBUFF_NUM
+                                +VOS_QUE3_MSGBUFF_NUM)
+
+/* VOSユーザーが決定するディスパッチ方式 */
+#define VOS_EVENT_DRIVEN        (1)
+#define VOS_TIME_SLICE          (2)
+#define VOS_DISPATCH            VOS_EVENT_DRIVEN
 
 /* VOSユーザーが決定するタスク優先度範囲 */
 enum {
-    TASK_PRI_LO = 1,                    /* 最低優先度 */
-    TASK_PRI_MID = 4,
-    TASK_PRI_HI = 7                     /* 最高優先度 */
+    VOS_TASK_PRI_LO = 1,                /* 最低優先度 */
+    VOS_TASK_PRI_MID = 4,
+    VOS_TASK_PRI_HI = 7                 /* 最高優先度 */
 };
 
 /* VOS ユーザへ提供するデバッグ機能 */
