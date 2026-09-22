@@ -6,16 +6,16 @@
 #define _VOS_CONFIG_H_
 
 /* VOSユーザーが決定する定数（リソース定数） */
-#define VOS_TASK_NUM            (3)     /* ユーザータスク数 */
-#define VOS_MSGQUE_NUM          (3)     /* メッセージキュー数 */
-#define VOS_EVT_NUM             (1)     /* イベントフラグ数 */
-#define VOS_SEM_NUM             (1)     /* セマフォ数 */
+#define VOS_TASK_NUM            (2)     /* ユーザータスク数 */
+#define VOS_MSGQUE_NUM          (2)     /* メッセージキュー数 */
+#define VOS_EVT_NUM             (0)     /* イベントフラグ数 */
+#define VOS_SEM_NUM             (0)     /* セマフォ数 */
 #define VOS_QUE1_MSGBUFF_NUM    (2)     /* メッセージキュー１のメッセージバッファ数 */
 #define VOS_QUE2_MSGBUFF_NUM    (2)     /* メッセージキュー２のメッセージバッファ数 */
-#define VOS_QUE3_MSGBUFF_NUM    (2)     /* メッセージキュー３のメッセージバッファ数 */
-#define VOS_TOTAL_MSG_NUM       (VOS_QUE1_MSGBUFF_NUM
-                                +VOS_QUE2_MSGBUFF_NUM
-                                +VOS_QUE3_MSGBUFF_NUM)
+#define VOS_QUE3_MSGBUFF_NUM    (0)     /* メッセージキュー３のメッセージバッファ数 */
+#define VOS_TOTAL_MSG_NUM       (VOS_QUE1_MSGBUFF_NUM \
+								+ VOS_QUE2_MSGBUFF_NUM \
+                                + VOS_QUE3_MSGBUFF_NUM)
 
 /* VOSユーザーが決定するディスパッチ方式 */
 #define VOS_EVENT_DRIVEN        (1)

@@ -86,13 +86,15 @@ vos.h：VOSヘッダーファイル
 
 /* VOS APIのエラーコード */
 typedef enum {
-    VOS_OK = 0,
+    VOS_OK = 0,                         /* エラーなし */
     VOS_INVALID_PARAM = -1,             /* APIパラメータ不正 */
     VOS_INVALID_HANDLE = -2,            /* 無効なハンドル */
-    VOS_MSG_QUEUE_FULL = -3,            /* メッセージキューがFULL */
-    VOS_MSG_BUFF_EMPTY = -4,            /* メッセージバッファがEMPTY */
-    VOS_NO_RESOURCE = -5,               /* リソース不足 */
-    VOS_OVER_RESOURCE = -6,             /* リソース超過 */
+    VOS_INVALID_API = -3,               /* 無効なAPIコール */
+    VOS_MSG_QUEUE_FULL = -4,            /* メッセージキューがFULL */
+    VOS_MSG_BUFF_EMPTY = -5,            /* メッセージバッファがEMPTY */
+    VOS_NO_RESOURCE = -6,               /* リソース不足 */
+    VOS_OVER_RESOURCE = -7,             /* リソース超過 */
+    VOS_NOTHING_TASK = -8,              /* タスクが存在しない */
 } vosError_e;
 ...
 
@@ -219,10 +221,10 @@ vosTaskCB_t*        g_vosDispatchTask;
 - タスク生成 [API]
     **プロトタイプ**
     ```
-    vosTaskHandle_t  vosTaskCreate(void (*task)(int32_t, char**), uint32_t pri, uint32_t stack_size, uint32_t *stack);
+    vosTaskHandle_t  vosTaskCreate(void (*task)(void), uint32_t pri, uint32_t stack_size, uint32_t *stack);
     ```
     **パラメータ**
-        [in] task(int32_t argc, char **argv):タスクの関数アドレス
+        [in] task:タスクの関数アドレス
         [in] pri:タスクの優先度
         [in] stack_size:タスクのスタックサイズ
         [in] stack:タスクのスタック領域
@@ -654,7 +656,8 @@ voud vosMemcpy(uint32_t * des, uint32_t * src, uint32_t byte_sz);
 | -4    |VOS_MSG_QUEUE_FULL |メッセージキューがFULL |
 | -5    |VOS_MSG_BUFF_EMPTY |メッセージバッファがEMPTY |
 | -6    |VOS_NO_RESOURCE    |リソース不足           |
-| -6    |VOS_OVER_RESOURCE  |リソース超過           |
+| -7    |VOS_OVER_RESOURCE  |リソース超過           |
+| -8    |VOS_NOTHING_TASK   |タスクが存在しない     |
 
 ---
 # Appendix
