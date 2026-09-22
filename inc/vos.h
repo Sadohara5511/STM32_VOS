@@ -6,6 +6,7 @@
 
 #include <stddef.h>
 #include <stdint.h>
+#include <stdbool.h>
 #include "vos_config.h"
 
 /* VOS基本定数・データ型 */
@@ -17,10 +18,11 @@ typedef enum {
     VOS_OK = 0,
     VOS_INVALID_PARAM = -1,             /* APIパラメータ不正 */
     VOS_INVALID_HANDLE = -2,            /* 無効なハンドル */
-    VOS_MSG_QUEUE_FULL = -3,            /* メッセージキューがFULL */
-    VOS_MSG_BUFF_EMPTY = -4,            /* メッセージバッファがEMPTY */
-    VOS_NO_RESOURCE = -5,               /* リソース不足 */
-    VOS_OVER_RESOURCE = -6,             /* リソース超過 */
+    VOS_INVALID_API = -3,               /* 無効なAPIコール */
+    VOS_MSG_QUEUE_FULL = -4,            /* メッセージキューがFULL */
+    VOS_MSG_BUFF_EMPTY = -5,            /* メッセージバッファがEMPTY */
+    VOS_NO_RESOURCE = -6,               /* リソース不足 */
+    VOS_OVER_RESOURCE = -7,             /* リソース超過 */
 } vosError_e;
 
 /* VOS基本データ型(ビルド時の構造体前方宣言) */

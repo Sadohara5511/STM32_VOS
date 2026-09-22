@@ -135,10 +135,8 @@ typedef struct {
 - カーネル初期化 [API]
     **プロトタイプ**
     ```
-    vosError_e vosKernelInit(void);
+    void vosKernelInit(void);
     ```
-    **リターン**
-        vosError_e値参照。
     **機能説明**
        全てのVOS変数を初期化する。
 
@@ -652,9 +650,10 @@ voud vosMemcpy(uint32_t * des, uint32_t * src, uint32_t byte_sz);
 |  0    |VOS_OK             |エラーなし             |
 | -1    |VOS_INVALID_PARAM  |APIパラメータ不正      |
 | -2    |VOS_INVALID_HANDLE |無効なハンドル         |
-| -3    |VOS_MSG_QUEUE_FULL |メッセージキューがFULL |
-| -4    |VOS_MSG_BUFF_EMPTY |メッセージバッファがEMPTY |
-| -5    |VOS_NO_RESOURCE    |リソース不足           |
+| -3    |VOS_INVALID_API    |無効なAPIコール        |
+| -4    |VOS_MSG_QUEUE_FULL |メッセージキューがFULL |
+| -5    |VOS_MSG_BUFF_EMPTY |メッセージバッファがEMPTY |
+| -6    |VOS_NO_RESOURCE    |リソース不足           |
 | -6    |VOS_OVER_RESOURCE  |リソース超過           |
 
 ---
