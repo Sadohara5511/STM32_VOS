@@ -1,83 +1,79 @@
 #include "vos.h"
 
-/* The kernel owns scheduling state; task and service modules only manipulate
- * the queue headers exposed by vos.h.  Queues are priority ordered and are
- * FIFO for tasks with the same priority. */
-
+/* Cortex-M scheduler state.  Register save/restore is performed by the
+ * PendSV handler in kernel_cm4.S; this file only selects the next task. */
 vosTaskHandle_t g_vosDispatchTask;
 
-static bool vos_task_queue_is_empty(const vosTaskQueHdr_t *hdr)
+static bool queue_empty(const vosTaskQueHdr_t *queue)
 {
-    return hdr == NULL || hdr->next_ptr == NULL ||
-           hdr->next_ptr == (vosTaskCB_t *)VOS_END_PTR;
+    return queue == NULL || queue->next_ptr == NULL ||
+           queue->next_ptr == (vosTaskCB_t *)VOS_END_PTR;
 }
 
-void vosTaskEnque(vosTaskQueHdr_t *hdr_ptr, vosTaskCB_t *task_ptr)
+void vosTaskEnque(vosTaskQueHdr_t *queue, vosTaskCB_t *task)
 {
-    vosTaskCB_t *prev;
-    vosTaskCB_t *cur;
+    vosTaskCB_t *previous = NULL;
+    vosTaskCB_t *current;
 
-    if (hdr_ptr == NULL || task_ptr == NULL ||
-        task_ptr == (vosTaskCB_t *)VOS_END_PTR) {
+    if (queue == NULL || task == NULL ||
+        task == (vosTaskCB_t *)VOS_END_PTR) {
         return;
     }
 
-    task_ptr->next_ptr = NULL;
-    prev = NULL;
-    cur = hdr_ptr->next_ptr;
-    while (cur != NULL && cur != (vosTaskCB_t *)VOS_END_PTR &&
-           cur->task_pri >= task_ptr->task_pri) {
-        prev = cur;
-        cur = cur->next_ptr;
+    current = queue->next_ptr;
+    /* Descending priority; <= keeps equal-priority tasks FIFO. */
+    while (current != NULL && current != (vosTaskCB_t *)VOS_END_PTR &&
+           current->task_pri >= task->task_pri) {
+        previous = current;
+        current = current->next_ptr;
     }
-
-    task_ptr->next_ptr = cur;
-    if (prev == NULL) {
-        hdr_ptr->next_ptr = task_ptr;
+    task->next_ptr = current;
+    if (previous == NULL) {
+        queue->next_ptr = task;
     } else {
-        prev->next_ptr = task_ptr;
+        previous->next_ptr = task;
     }
 }
 
-vosTaskCB_t *vosTaskDeque(vosTaskQueHdr_t *hdr_ptr)
+vosTaskCB_t *vosTaskDeque(vosTaskQueHdr_t *queue)
 {
     vosTaskCB_t *task;
 
-    if (vos_task_queue_is_empty(hdr_ptr)) {
+    if (queue_empty(queue)) {
         return NULL;
     }
-    task = hdr_ptr->next_ptr;
-    hdr_ptr->next_ptr = task->next_ptr;
+    task = queue->next_ptr;
+    queue->next_ptr = task->next_ptr;
     task->next_ptr = NULL;
     return task;
 }
 
-bool vosTargetTaskDeque(vosTaskQueHdr_t *hdr_ptr, vosTaskCB_t *task_ptr)
+bool vosTargetTaskDeque(vosTaskQueHdr_t *queue, vosTaskCB_t *target)
 {
-    vosTaskCB_t *prev = NULL;
-    vosTaskCB_t *cur;
+    vosTaskCB_t *previous = NULL;
+    vosTaskCB_t *current;
 
-    if (hdr_ptr == NULL || task_ptr == NULL) {
+    if (queue == NULL || target == NULL) {
         return false;
     }
-    cur = hdr_ptr->next_ptr;
-    while (cur != NULL && cur != (vosTaskCB_t *)VOS_END_PTR) {
-        if (cur == task_ptr) {
-            if (prev == NULL) {
-                hdr_ptr->next_ptr = cur->next_ptr;
+    current = queue->next_ptr;
+    while (current != NULL && current != (vosTaskCB_t *)VOS_END_PTR) {
+        if (current == target) {
+            if (previous == NULL) {
+                queue->next_ptr = current->next_ptr;
             } else {
-                prev->next_ptr = cur->next_ptr;
+                previous->next_ptr = current->next_ptr;
             }
-            cur->next_ptr = NULL;
+            current->next_ptr = NULL;
             return true;
         }
-        prev = cur;
-        cur = cur->next_ptr;
+        previous = current;
+        current = current->next_ptr;
     }
     return false;
 }
 
-void vos_initKernel(void)
+void vosKernelInit(void)
 {
     g_vosKernelCB.start_kernel = false;
     g_vosKernelCB.run_task.next_ptr = NULL;
@@ -97,77 +93,76 @@ void vos_initKernel(void)
     }
 }
 
-/* Select the next task.  The actual register save/restore is deliberately
- * kept in vosPendSVHandler on Cortex-M; this function only prepares it. */
-void vosTaskDispatch(vosTaskHandle_t handle)
+/* Backward-compatible spelling used by the initial source tree. */
+void vos_initKernel(void)
 {
-    if (handle == NULL || handle == (vosTaskHandle_t)VOS_END_PTR) {
-        return;
-    }
-    g_vosDispatchTask = handle;
+    vosKernelInit();
 }
 
-void vosPendSVHandler(void)
+void vosTaskDispatch(vosTaskHandle_t task)
 {
+    if (task == NULL || task == (vosTaskHandle_t)VOS_END_PTR) {
+        return;
+    }
+    g_vosDispatchTask = task;
+#if defined(__CORTEX_M) || defined(__arm__) || defined(__thumb__)
+    *(volatile uint32_t *)0xE000ED04UL |= (1UL << 28); /* ICSR.PENDSVSET */
+#endif
+}
+
+/* Called by PendSV_Handler after hardware has entered handler mode. */
+vosTaskHandle_t vosPendSVPrepare(void)
+{
+    vosTaskCB_t *current = g_vosKernelCB.run_task.next_ptr;
     vosTaskCB_t *next = g_vosDispatchTask;
 
     if (next == NULL) {
-        return;
+        return current;
     }
-    if (g_vosKernelCB.run_task.next_ptr != NULL) {
-        vosTaskCB_t *current = g_vosKernelCB.run_task.next_ptr;
-        g_vosKernelCB.run_task.next_ptr = NULL;
+    if (current != NULL && current != next) {
         vosTaskEnque(&g_vosKernelCB.ready_que, current);
     }
+    (void)vosTargetTaskDeque(&g_vosKernelCB.ready_que, next);
     g_vosKernelCB.run_task.next_ptr = next;
     g_vosDispatchTask = NULL;
+    return next;
 }
 
 void vosSysTickHandler(void)
 {
-    vosTaskCB_t *current = g_vosKernelCB.run_task.next_ptr;
-    vosTaskCB_t *ready = g_vosKernelCB.ready_que.next_ptr;
+    vosTaskCB_t *current;
+    vosTaskCB_t *next = g_vosKernelCB.ready_que.next_ptr;
 
-    if (!g_vosKernelCB.start_kernel || ready == NULL) {
+    if (!g_vosKernelCB.start_kernel || next == NULL) {
         return;
     }
+    current = g_vosKernelCB.run_task.next_ptr;
 #if (VOS_DISPATCH == VOS_TIME_SLICE)
-    vosTaskDispatch(ready);
-    (void)vosTaskDeque(&g_vosKernelCB.ready_que);
-    vosPendSVHandler();
+    if (current == NULL || next->task_pri >= current->task_pri) {
+        vosTaskDispatch(next);
+    }
 #else
-    if (current == NULL || ready->task_pri > current->task_pri) {
-        vosTaskDispatch(ready);
-        (void)vosTaskDeque(&g_vosKernelCB.ready_que);
-        vosPendSVHandler();
+    if (current == NULL || next->task_pri > current->task_pri) {
+        vosTaskDispatch(next);
     }
 #endif
 }
 
-/* Cooperative fallback used by the C implementation.  On Cortex-M a task
- * normally returns through the PendSV context restore path. */
 vosError_e vosKernelStart(void)
 {
-    g_vosKernelCB.start_kernel = true;
+    vosTaskCB_t *first;
 
-    while (g_vosKernelCB.ready_que.next_ptr != NULL ||
-           g_vosKernelCB.run_task.next_ptr != NULL) {
-        if (g_vosKernelCB.run_task.next_ptr == NULL) {
-            vosTaskDispatch(vosTaskDeque(&g_vosKernelCB.ready_que));
-            vosPendSVHandler();
-        }
-        if (g_vosKernelCB.run_task.next_ptr != NULL &&
-            g_vosKernelCB.run_task.next_ptr->task_func != NULL) {
-            void (*task)(int32_t, char **) =
-                (void (*)(int32_t, char **))g_vosKernelCB.run_task.next_ptr->task_func;
-            task(0, NULL);
-            /* A returning task has implicitly exited. */
-            g_vosKernelCB.run_task.next_ptr->task_func = NULL;
-            g_vosKernelCB.run_task.next_ptr = NULL;
-        } else if (g_vosKernelCB.ready_que.next_ptr == NULL) {
-            break;
-        }
+    if (g_vosKernelCB.start_kernel) {
+        return VOS_INVALID_API;
     }
-    g_vosKernelCB.start_kernel = false;
+    g_vosKernelCB.start_kernel = true;
+    first = vosTaskDeque(&g_vosKernelCB.ready_que);
+    if (first == NULL) {
+        g_vosKernelCB.start_kernel = false;
+        return VOS_NO_RESOURCE;
+    }
+    g_vosKernelCB.run_task.next_ptr = first;
+    vosTaskDispatch(first);
+    /* Control transfers to the first task when PendSV is serviced. */
     return VOS_OK;
 }
