@@ -30,6 +30,7 @@
 - 一般的なRTOS同様、main関数にてアイドルタスク及びユーザタスクを繰り返し実行可能なループ実装にする。
 - システムTICK割り込みを使用して、同一優先度のタスク・ディスパッチを実装する。
 - タスク・ディスパッチは、レジスタ退避・復元が必要となるので割り込みハンドラ（アセンブラ）にて実装する。
+- SysTickおよび特権モードを使用するArm CORTEX-M3,M4アーキテクチャにて実装する。
 
 ## 1-3.用語説明
 - タスク優先度
@@ -51,13 +52,13 @@ C言語ヘッダーファイルにて以下を定義する。
 vos_config.h：ユーザーが定義するVOSコンフィグレーション・ヘッダーファイル
 ```
 /* VOSユーザーが決定する定数（リソース定数） */
-#define VOS_TASK_NUM            (3)     /* ユーザータスク数 */
-#define VOS_MSGQUE_NUM          (3)     /* メッセージキュー数 */
-#define VOS_EVT_NUM             (2)     /* イベントフラグ数 */
-#define VOS_SEM_NUM             (2)     /* セマフォ数 */
+#define VOS_TASK_NUM            (2)     /* ユーザータスク数 */
+#define VOS_MSGQUE_NUM          (2)     /* メッセージキュー数 */
+#define VOS_EVT_NUM             (0)     /* イベントフラグ数 */
+#define VOS_SEM_NUM             (0)     /* セマフォ数 */
 #define VOS_QUE1_MSGBUFF_NUM    (2)     /* メッセージキュー１のメッセージバッファ数 */
 #define VOS_QUE2_MSGBUFF_NUM    (2)     /* メッセージキュー２のメッセージバッファ数 */
-#define VOS_QUE3_MSGBUFF_NUM    (2)     /* メッセージキュー３のメッセージバッファ数 */
+#define VOS_QUE3_MSGBUFF_NUM    (0)     /* メッセージキュー３のメッセージバッファ数 */
 #define VOS_TOTAL_MSGBUFF_NUM   (VOS_QUE1_MSGBUFF_NUM
                                 +VOS_QUE2_MSGBUFF_NUM
                                 +VOS_QUE3_MSGBUFF_NUM)
@@ -67,12 +68,15 @@ vos_config.h：ユーザーが定義するVOSコンフィグレーション・�
 #define VOS_TIME_SLICE          (2)
 #define VOS_DISPATCH            VOS_EVENT_DRIVEN
 
-/* VOSユーザーが決定するタスク優先度範囲 */
-enum {
+/* VOSタスク優先度 */
+typedef enum {
+    VOS_IDLE_TASK_PRI = 0,              /* IDLEタスク優先度 */
+    /* VOSユーザーが決定するタスク優先度 */
     VOS_TASK_PRI_LO = 1,                /* 最低優先度 */
     VOS_TASK_PRI_MID = 4,
     VOS_TASK_PRI_HI = 7                 /* 最高優先度 */
-}
+} VOS_TASKPRI_e;
+
 /* VOS ユーザへ提供するデバッグ機能 */
 #define VOS_STACK_OVF_CHECK     true    /* スタック・オバーフロー・チェック */
 #define VOS_API_PARAM_CHECK     true    /* APIのパラメータチェックの実施有無*/
@@ -140,7 +144,8 @@ typedef struct {
     void vosKernelInit(void);
     ```
     **機能説明**
-       全てのVOS変数を初期化する。
+        全てのVOS変数を初期化する。
+        IDLEタスクをRUNタスクとしてセットアップする。
 
 - カーネルスタート [API]
     **プロトタイプ**
@@ -193,19 +198,24 @@ typedef struct {
 ### 3-1-2.データ設計
 カーネルが保持・管理する変数について示す。
 ```
+/* タスク状態キュー */
+typedef struct {
+    vosTaskCB_t *   next_ptr;    
+} vosTaskQueHdr_t;
+
 /* カーネルコントロールブロック */
 typedef struct {
-    bool            start_kernel;       /* カーネルStart/Stop */
     vosTaskQueHdr_t run_task;           /* RUNタスク */
     vosTaskQueHdr_t ready_que;          /* READYキュー */
     vosTaskQueHdr_t wait_que;           /* WAITキュー */
-    vosTaskQueHdr_t stop_que;           /* STOPキュー */
+    vosTaskQueHdr_t dormant_que;        /* DORMANTキュー(STOP状態) */
+    bool            start_kernel;       /* カーネルStart/Stop */
 } vosKernelCB_t;
 
 /* カーネルコントロールブロック変数宣言 */
-vosKernelCB_t       g_vosKernelCB;
-/* 次ディスパッチタスク */
-vosTaskCB_t*        g_vosDispatchTask;
+extern vosKernelCB_t    g_vosKernelCB;
+/* 次遷移ディスパッチタスク */
+extern vosTaskCB_t*     g_vosDispatchTask;
 ```
 
 ---
@@ -298,25 +308,22 @@ vosTaskCB_t*        g_vosDispatchTask;
 /* タスクコントロールブロック */
 struct tag_vosTaskCB {
     vosTaskCB_t*    next_ptr;           /* タスクコントロールブロック・リストポインタ */
+    void*			stack_pointer;		/* スタックポインタ*/
     union {
         vosMsgCB_t* msg_cb;             /* メッセージキュー */
         vosEvtCB_t* evt_cb;             /* イベントフラグ */
         vosSemCB_t* sem_cd;             /* セマフォ */
     }wait_svc;                          /* 受信待ちサービス */
-    uint32_t        task_pri;           /* タスク優先度 */
-    void            (*task)(int32_t, char**);          /* タスク実行アドレス */
     vosError_e      api_err;            /* 機能APIのエラーコード */
+    vosState_e		next_state;			/* RUNタスクからの遷移先(キュー) */
+    VOS_TASKPRI_e   task_pri;           /* タスク優先度 */
     uint32_t        stack_size;         /* スタック領域サイズ(単位:32bit) */
     uint32_t*       stacK_top;          /* スタック領域先頭アドレス */
+    void            (*task)(void*);     /* タスク実行アドレス */
 };
 
-/* タスク状態キュー */
-typedef struct {
-    vosTaskCB_t *   next_ptr;    
-} vosTaskQueHdr_t;
-
 /* タスクコントロールブロック変数宣言 */
-vosTaskCB_t         g_vosTaskCB[VOS_TASK_NUM];
+extern vosTaskCB_t      g_vosTaskCB[VOS_TASK_NUM];
 ```
 
 ---

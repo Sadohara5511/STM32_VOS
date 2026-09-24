@@ -12,6 +12,13 @@ vosTaskCB_t*        g_vosDispatchTask;
 
 int32_t     g_vosCriticalCounter;         /* 割り込み抑止解除カウンタ */
 
+/* IDLEタスクコントロールブロックとスタック宣言 */
+vosTaskCB_t         g_vosIdleTaskCB;
+void vosIdleTask(void*p)
+{
+	while(1);
+}
+
 /**
  * fast fill @32bit architecture
  */
@@ -51,10 +58,6 @@ void vosMemcpy(void *des, void *src, size_t size)
         }
     }
 }
-
-/* Cortex-M scheduler state.  Register save/restore is performed by the
- * PendSV handler in kernel_cm4/cm3.S; this file only selects the next task. */
-vosTaskHandle_t g_vosDispatchTask;
 
 static bool queue_empty(const vosTaskQueHdr_t *queue)
 {
@@ -141,7 +144,7 @@ vosTaskCB_t *vosTask_getTaskCB(void)
 void vosTaskDispatch(vosTaskHandle_t task)
 {
 #if(VOS_API_PARAM_CHECK)
-    if (task == NUL || task == VOS_END_PTR) {
+    if (task == NUL /*|| task == VOS_END_PTR*/) {
         return;
     }
 #endif
@@ -152,19 +155,42 @@ void vosTaskDispatch(vosTaskHandle_t task)
 #endif
 }
 
-/* Called by PendSV_Handler after hardware has entered handler mode. */
+/**
+ * vosPendSVHandlerからコールされ、キュー管理を更新する
+ * @note Called by PendSV_Handler after hardware has entered handler mode.
+ */
 vosTaskHandle_t vosPendSVPrepare(void)
 {
-    vosTaskCB_t *list = g_vosKernelCB.run_task.next_ptr;
+    vosTaskCB_t *run = g_vosKernelCB.run_task.next_ptr;
     vosTaskCB_t *next = g_vosDispatchTask;
 
     if (next == NUL) {
-        return list;
+        return run;
     }
-    if (list != NUL && list != next) {
-        vosTaskEnque(&g_vosKernelCB.ready_que, list);
+    /* RUNタスクを次遷移先キューにつなぐ */
+    if (run != NUL && run != next) {
+    	switch(run->next_state) {
+    	case VOS_READY:
+            vosTaskEnque(&g_vosKernelCB.ready_que, run);
+            break;
+    	case VOS_WAIT:
+            vosTaskEnque(&g_vosKernelCB.wait_que, run);
+            break;
+    	case VOS_DORMANT:
+            vosTaskEnque(&g_vosKernelCB.dormant_que, run);
+            break;
+    	default:
+            break;
+    	}
     }
-    //vosTargetTaskDeque(&g_vosKernelCB.ready_que, next);   //不要だろう
+#if 0	/* コール元でキューから外すこと */
+    /* ディスパッチするタスクをキューから外しRUNキューにつなぐ */
+    if (! vosTargetTaskDeque(&g_vosKernelCB.ready_que, next)) {
+        if (! vosTargetTaskDeque(&g_vosKernelCB.wait_que, next)) {
+            vosTargetTaskDeque(&g_vosKernelCB.dormant_que, next);
+        }
+    }
+#endif
     g_vosKernelCB.run_task.next_ptr = next;
     g_vosDispatchTask = NUL;
     return next;
@@ -195,8 +221,16 @@ void vosSysTickHandler(void)
  */
 void vosKernelInit(void)
 {
+	extern uint8_t _estack; /* Symbol defined in the linker script */
+	extern uint32_t _Min_Stack_Size; /* Symbol defined in the linker script */
     vosMemset(&g_vosKernelCB, 0, sizeof(g_vosKernelCB));
     vosMemset(g_vosTaskCB, 0, sizeof(g_vosTaskCB));
+    vosMemset(&g_vosIdleTaskCB, 0, sizeof(g_vosIdleTaskCB));
+    g_vosIdleTaskCB.stack_size = (uint32_t)&_estack - (uint32_t)&_Min_Stack_Size;
+    g_vosIdleTaskCB.stack_top = (uint32_t*)&_estack;
+	g_vosIdleTaskCB.next_state = VOS_READY;
+    g_vosIdleTaskCB.task = &vosIdleTask;
+    g_vosKernelCB.run_task.next_ptr = &g_vosIdleTaskCB;
 }
 
 /**
@@ -214,11 +248,11 @@ vosError_e vosKernelStart(void)
     if (first == NUL) {
         return VOS_NOTHING_TASK;
     }
-    g_vosKernelCB.start_kernel = true;
     /* Control transfers to the first task when PendSV is serviced. */
     //g_vosKernelCB.run_task.next_ptr = first;  // Setting in PendSV.
     vosTaskDispatch(first);
 
+    g_vosKernelCB.start_kernel = true;
     while(g_vosKernelCB.start_kernel)
         ;   // It might call the IDLE task.
     return VOS_OK;
@@ -226,18 +260,45 @@ vosError_e vosKernelStart(void)
 
 /**
  * [API] task create
+ * @param[in] task	Task function address
+ * @param[in] param	Task function parameter
+ * @param[in] pri	Task priority
+ * @param[in] size	Task stack size
+ * @param[in] stack	Task stack top address
+ * @return	Task handle
  */
-vosTaskHandle_t  vosTaskCreate(void (*task)(void), uint32_t pri, uint32_t stack_size, uint32_t *stack)
+vosTaskHandle_t vosTaskCreate(void (*task)(void*), void*param, VOS_TASKPRI_e pri, size_t size, uint8_t *stack)
 {
-	vosTaskCB_t	*new_tcb = vosTask_getTaskCB();
-	if (new_tcb == NUL) {
+	uint32_t	*stack_bottom = (uint32_t*)&stack[size];
+	vosTaskCB_t	*new_task = vosTask_getTaskCB();
+	if (new_task == NUL) {
 		return NUL;
 	}
-	new_tcb->task_pri = pri;
-	new_tcb->stack_size = stack_size;
-	new_tcb->stacK_top = stack;
-	new_tcb->task = task;
+    //割り込みによる自動POPレジスタ群
+	*(--stack_bottom) = 0x01000000;			//PSR：プログラムステータスレジスタにThumbモード（必須）をセット
+	*(--stack_bottom) = (uint32_t)task;		//PC
+	*(--stack_bottom) = 0xfffffff9;			//R14(LR)：プロセスEXE_RETUR code
+	*(--stack_bottom) = 0;					//R12
+	*(--stack_bottom) = 0;					//R3
+	*(--stack_bottom) = 0;					//R2
+	*(--stack_bottom) = 0;					//R1
+	*(--stack_bottom) = (uint32_t)param;	//R0：task parameter
+#if 1 //PendSVハンドラでのPOPレジスタ群
+	*(--stack_bottom) = 0;				//R11
+	*(--stack_bottom) = 0;				//R10
+	*(--stack_bottom) = 0;				//R9
+	*(--stack_bottom) = 0;				//R8
+	*(--stack_bottom) = 0;				//R7
+	*(--stack_bottom) = 0;				//R6
+	*(--stack_bottom) = 0;				//R5
+	*(--stack_bottom) = 0;				//R4
+#endif
+	new_task->stack_pointer = stack_bottom;
+	new_task->task_pri = pri;
+	new_task->stack_size = size;
+	new_task->stack_top = (uint32_t*)stack;
+	new_task->task = task;
 
-	vosTaskEnque(&g_vosKernelCB.ready_que, new_tcb);
-	return new_tcb;
+	vosTaskEnque(&g_vosKernelCB.ready_que, new_task);
+	return new_task;
 }

@@ -26,6 +26,14 @@ typedef enum {
 	VOS_NOTHING_TASK = -8,				/* タスクが存在しない */
 } vosError_e;
 
+/* VOS状態定数 */
+typedef enum {
+	VOS_CLEAR = 0,						/* 初期値 */
+	VOS_READY,							/* READYキュー */
+	VOS_WAIT,							/* WAITキュー */
+	VOS_DORMANT,						/* DORMANTキュー */
+} vosState_e;
+
 /* VOS基本データ型(ビルド時の構造体前方宣言) */
 typedef struct tag_vosMsgCB vosMsgCB_t;
 typedef struct tag_vosEvtCB vosEvtCB_t;
@@ -43,34 +51,37 @@ typedef struct {
 
 /* カーネルコントロールブロック */
 typedef struct {
-    bool            start_kernel;       /* カーネルStart/Stop */
     vosTaskQueHdr_t run_task;           /* RUNタスク */
     vosTaskQueHdr_t ready_que;          /* READYキュー */
     vosTaskQueHdr_t wait_que;           /* WAITキュー */
     vosTaskQueHdr_t dormant_que;        /* DORMANTキュー */
+    bool            start_kernel;       /* カーネルStart/Stop */
 } vosKernelCB_t;
 
 /* カーネルコントロールブロック変数宣言 */
-extern vosKernelCB_t       g_vosKernelCB;
+extern vosKernelCB_t    g_vosKernelCB;
 
 /* タスクコントロールブロック */
 struct tag_vosTaskCB {
     vosTaskCB_t*    next_ptr;           /* タスクコントロールブロック・リストポインタ */
+    void*			stack_pointer;		/* スタックポインタ*/
     union {
         vosMsgCB_t* msg_cb;             /* メッセージキュー */
         vosEvtCB_t* evt_cb;             /* イベントフラグ */
         vosSemCB_t* sem_cd;             /* セマフォ */
     }wait_svc;                          /* 受信待ちサービス */
-    uint32_t        task_pri;           /* タスク優先度 */
+    vosError_e      api_err;            /* 機能APIのエラーコード */
+    vosState_e		next_state;			/* RUNタスクからの遷移先(キュー) */
+    VOS_TASKPRI_e   task_pri;           /* タスク優先度 */
     uint32_t        stack_size;         /* スタック領域サイズ(単位:32bit) */
-    uint32_t*       stacK_top;          /* スタック領域先頭アドレス */
-    void 			(*task)(void);      /* タスク実行アドレス */
+    uint32_t*       stack_top;          /* スタック領域先頭アドレス */
+    void 			(*task)(void*);     /* タスク実行アドレス */
 };
 
 /* タスクコントロールブロック変数宣言 */
-extern vosTaskCB_t         g_vosTaskCB[VOS_TASK_NUM];
+extern vosTaskCB_t      g_vosTaskCB[VOS_TASK_NUM];
 
-extern int32_t     g_vosCriticalCounter;         /* 割り込み抑止解除カウンタ */
+extern int32_t          g_vosCriticalCounter;         /* 割り込み抑止解除カウンタ */
 
 
 #if(VOS_MSGQUE_NUM != 0)                   /* メッセージ数≠0 */
@@ -93,8 +104,8 @@ struct tag_vosMsgCB	{
 };
 
 /* メッセージコントロールブロック変数宣言 */
-extern vosMsgHdr_t         g_vosMsgBuff_t[VOS_TOTAL_MSG_NUM];
-extern vosMsgCB_t          g_vosMsgCB[VOS_MSGQUE_NUM];
+extern vosMsgHdr_t      g_vosMsgBuff_t[VOS_TOTAL_MSG_NUM];
+extern vosMsgCB_t       g_vosMsgCB[VOS_MSGQUE_NUM];
 #endif  /*(VOS_MSGQUE_NUM != 0)*/
 
 
@@ -106,7 +117,7 @@ struct tag_vosEvtCB {
 };
 
 /* イベントフラグコントロールブロック変数宣言 */
-extern vosEvtCB_t          g_vosEvtCB[VOS_EVT_NUM];
+extern vosEvtCB_t       g_vosEvtCB[VOS_EVT_NUM];
 #endif  /*(VOS_EVT_NUM != 0)*/
 
 
@@ -119,13 +130,13 @@ struct tag_vosSemCB {
 };
 
 /* セマフォコントロールブロック変数宣言 */
-extern vosSemCB_t          g_vosSemCB[VOS_SEM_NUM];
+extern vosSemCB_t       g_vosSemCB[VOS_SEM_NUM];
 #endif  /*(VOS_SEM_NUM != 0)*/
 
 
 /* プロトタイプ */
 extern void vosKernelInit(void);
 extern vosError_e vosKernelStart(void);
-extern vosTaskHandle_t vosTaskCreate(void (*task)(void), uint32_t pri, uint32_t stack_size, uint32_t *stack);
+extern vosTaskHandle_t vosTaskCreate(void (*task)(void*), void *param, VOS_TASKPRI_e pri, size_t size, uint8_t *stack);
 
 #endif /*_VOS_H_*/

@@ -22,12 +22,14 @@
 #define VOS_TIME_SLICE          (2)
 #define VOS_DISPATCH            VOS_EVENT_DRIVEN
 
-/* VOSユーザーが決定するタスク優先度範囲 */
-enum {
+/* VOSタスク優先度 */
+typedef enum {
+    VOS_IDLE_TASK_PRI = 0,              /* IDLEタスク優先度 */
+    /* VOSユーザーが決定するタスク優先度 */
     VOS_TASK_PRI_LO = 1,                /* 最低優先度 */
     VOS_TASK_PRI_MID = 4,
     VOS_TASK_PRI_HI = 7                 /* 最高優先度 */
-};
+} VOS_TASKPRI_e;
 
 /* VOS ユーザへ提供するデバッグ機能 */
 #define VOS_STACK_OVF_CHECK     true    /* スタック・オバーフロー・チェックの実施有無 */
