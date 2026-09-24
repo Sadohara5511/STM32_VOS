@@ -1,11 +1,9 @@
-/**
- * マルチタスクOS(VOS) ヘッダーファイル
- */
 #ifndef _VOS_H_
 #define _VOS_H_
 
 #include <stddef.h>
 #include <stdint.h>
+#include <stdbool.h>
 #include "vos_config.h"
 
 /* VOS基本定数・データ型 */
@@ -33,6 +31,11 @@ typedef vosEvtCB_t* vosEvtHandle_t;     /* イベントフラグハンドル */
 typedef vosSemCB_t* vosSemHandle_t;     /* セマフォハンドル */
 typedef vosTaskCB_t* vosTaskHandle_t;   /* タスクハンドル */
 
+/* タスク状態キュー */
+typedef struct {
+    vosTaskCB_t *   next_ptr;
+} vosTaskQueHdr_t;
+
 /* カーネルコントロールブロック */
 typedef struct {
     bool            start_kernel;       /* カーネルStart/Stop */
@@ -43,7 +46,7 @@ typedef struct {
 } vosKernelCB_t;
 
 /* カーネルコントロールブロック変数宣言 */
-vosKernelCB_t       g_vosKernelCB;
+extern vosKernelCB_t    g_vosKernelCB;
 
 /* タスクコントロールブロック */
 struct tag_vosTaskCB {
@@ -59,16 +62,10 @@ struct tag_vosTaskCB {
     uint32_t*       task_func;          /* タスク実行アドレス */
 };
 
-/* タスク状態キュー */
-typedef struct {
-    vosTaskCB_t *   next_ptr;
-} vosTaskQueHdr_t;
-
 /* タスクコントロールブロック変数宣言 */
-vosTaskCB_t         g_vosTaskCB[VOS_TASK_NUM];
+extern vosTaskCB_t      g_vosTaskCB[VOS_TASK_NUM];
 
 int32_t     g_vosCriticalCounter;         /* 割り込み抑止解除カウンタ */
-
 
 #if(VOS_MSGQUE_NUM != 0)                   /* メッセージ数≠0 */
 /* メッセージコントロールブロック */
@@ -90,10 +87,9 @@ typedef struct {
 } vosMsgCB_t;
 
 /* メッセージコントロールブロック変数宣言 */
-vosMsgHdr_t         g_vosMsgBuff_t[VOS_TOTAL_MSG_NUM]
-vosMsgCB_t          g_vosMsgCB[VOS_MSGQUE_NUM];
+extern vosMsgHdr_t         g_vosMsgBuff_t[VOS_TOTAL_MSG_NUM];
+extern vosMsgCB_t          g_vosMsgCB[VOS_MSGQUE_NUM];
 #endif  /*(VOS_MSGQUE_NUM != 0)*/
-
 
 #if(VOS_EVT_NUM != 0)                   /* イベントフラグ数≠0 */
 /* イベントフラグコントロールブロック */
@@ -103,9 +99,8 @@ struct tag_vosEvtCB {
 };
 
 /* イベントフラグコントロールブロック変数宣言 */
-vosEvtCB_t          g_vosEvtCB[VOS_EVT_NUM];
+extern vosEvtCB_t          g_vosEvtCB[VOS_EVT_NUM];
 #endif  /*(VOS_EVT_NUM != 0)*/
-
 
 #if(VOS_SEM_NUM != 0)                   /* セマフォ数≠0 */
 /* セマフォコントロールブロック */
@@ -116,13 +111,20 @@ struct tag_vosSemCB {
 };
 
 /* セマフォコントロールブロック変数宣言 */
-vosSemCB_t          g_vosSemCB[VOS_SEM_NUM];
+extern vosSemCB_t          g_vosSemCB[VOS_SEM_NUM];
 #endif  /*(VOS_SEM_NUM != 0)*/
 
-
 /* プロトタイプ */
-void vos_initKernel(void);
+void vosInitKernel(void);
+void vosInitTask(void);
+void vosInitMsgQue(void);
+void vosInitEvtFlag(void);
+
 vosTaskHandle_t  vosCreateTask(int32_t (*task)(int32_t, char**), uint32_t pri, uint32_t stack_size, uint32_t *stack);
 vosMsgHandle_t   vosCreateMsgQue(uint32_t msg_num, uint32_t msg_size, uint32_t *msg_pool);
+vosEvtHandle_t   vosEvtFlagCreate(uint32_t *evtflag_ptr);
+uint32_t         vosEvtFlagWait(vosEvtHandle_t handle, uint32_t wait_bit);
+bool             vosEvtFlagPost(vosEvtHandle_t handle, uint32_t post_bit);
+bool             vosEvtFlagClear(vosEvtHandle_t handle, uint32_t clear_bit);
 
 #endif /*_VOS_H_*/
