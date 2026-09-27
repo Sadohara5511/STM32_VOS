@@ -11,9 +11,15 @@
     .extern g_vosKernelCB
     .extern g_vosDispatchTask
     .extern vosPendSVPrepare
+	/* タスクコントロールブロックメンバー変数位置 */
     #define RUN_TASK        0x0
     #define STACK_POINTER   0x4
-    #define STACK_TOP       0x14
+    #define API_ERR			0x8
+    #define NEXT_STATE		0xC
+    #define TASK_PRI		0x10
+    #define	STACK_SIZE		0x14
+    #define STACK_TOP       0x18
+    #define TASK_FUNC		0x1C
 
 /* Cortex-M3 exception entry has already stacked r0-r3, r12, lr, pc, xPSR.
  * Save the callee-saved registers r4-r11 into the task stack before switching.
@@ -26,13 +32,21 @@ vosPendSVHandler:
 	cpsid	i
 	mrs		r0, msp
 
-#if 1 /* 現スタックポインタをRUNタスクに退避する */
-	stmdb	  r0!, {r4-r11}
-	ldr	  r1, =g_vosKernelCB		/* g_vosKernelCB.run_task.next_ptr */
-	ldr	  r1, [r1, #RUN_TASK]		/* run_task.next_ptrはg_vosKernelCBの先頭アドレスにある */
-	str	  r0, [r1, #STACK_POINTER]	/* スタックポインタをrun_task.stack_pointerに保存 */
-#endif
-	/* 次遷移タスクのタスクスタックポインタを復元 */
+	/* 現スタックポインタをRUNタスクに退避する */
+	stmdb	r0!, {r4-r11}
+	ldr	  	r1, =g_vosKernelCB			/* g_vosKernelCB.run_task.next_ptr */
+	ldr	  	r1, [r1, #RUN_TASK]			/* run_task.next_ptrはg_vosKernelCBの先頭アドレスにある */
+	str		r0, [r1, #STACK_POINTER]	/* スタックポインタをrun_task.stack_pointerに保存 */
+	/* ここで次遷移タスクのタスクスタックポインタを復元 */
+	/* vosPendSVPrepare関数によりスタックが汚れるため、レジスタをPOPする遷移先タスクのスタックを汚すことにした */
+	ldr		r1, =g_vosDispatchTask
+	ldr		r1, [r1, #0]
+	cbz		r1, label_1
+	ldr		r0, [r1, #STACK_POINTER]	/* xxx_task.stack_pointerから復元 */
+label_1:
+	msr		msp, r0
+
+	/* RUNタスクを次遷移先キューにつなぎ、次遷移タスクをRUNタスクにする */
 	bl		vosPendSVPrepare			/* return(R0)は、run_task（TaskCB)領域 */
 	ldr		r0, [r0, #STACK_POINTER]	/* run_task.stack_pointerから復元 */
 	ldmia	r0!, {r4-r11}

@@ -8,10 +8,12 @@
 #include <stdint.h>
 #include <stdbool.h>
 #include "vos_config.h"
+#include "cmsis_if.h"		//Arm CMSIS
 
 /* VOS基本定数・データ型 */
 #define VOS_END_PTR     (void*)(-1)     /* リストの端点(番人)ポインタ値 */
 #define NUL             (NULL)          /* 初期ポインタ値 */
+#define ALIGN(n)		__attribute__((aligned(n)))
 
 /* VOS APIのエラーリターンコード */
 typedef enum {
@@ -23,7 +25,7 @@ typedef enum {
     VOS_MSG_BUFF_EMPTY = -5,            /* メッセージバッファがEMPTY */
     VOS_NO_RESOURCE = -6,               /* リソース不足 */
     VOS_OVER_RESOURCE = -7,             /* リソース超過 */
-	VOS_NOTHING_TASK = -8,				/* タスクが存在しない */
+	VOS_NOTHING_TASK = -8,				/* (他・自)タスクが存在しない */
 } vosError_e;
 
 /* VOS状態定数 */
@@ -65,11 +67,13 @@ extern vosKernelCB_t    g_vosKernelCB;
 struct tag_vosTaskCB {
     vosTaskCB_t*    next_ptr;           /* タスクコントロールブロック・リストポインタ */
     void*			stack_pointer;		/* スタックポインタ*/
+#if 0	//使用しないかも
     union {
         vosMsgCB_t* msg_cb;             /* メッセージキュー */
         vosEvtCB_t* evt_cb;             /* イベントフラグ */
         vosSemCB_t* sem_cd;             /* セマフォ */
     }wait_svc;                          /* 受信待ちサービス */
+#endif
     vosError_e      api_err;            /* 機能APIのエラーコード */
     vosState_e		next_state;			/* RUNタスクからの遷移先(キュー) */
     VOS_TASKPRI_e   task_pri;           /* タスク優先度 */
@@ -112,11 +116,13 @@ extern vosMsgCB_t       g_vosMsgCB[VOS_MSGQUE_NUM];
 #if(VOS_EVT_NUM != 0)                   /* イベントフラグ数≠0 */
 /* イベントフラグコントロールブロック */
 struct tag_vosEvtCB {
+	uint32_t*		evt_flg_ptr;		/* ユーザーのイベントフラグ */
     uint32_t        evt_flg;            /* イベントフラグ */
     vosTaskQueHdr_t wait_task;          /* 待ち状態タスクコントロールブロック・ポインタ */
 };
 
 /* イベントフラグコントロールブロック変数宣言 */
+extern uint32_t			g_vosEvtCB_Counter;
 extern vosEvtCB_t       g_vosEvtCB[VOS_EVT_NUM];
 #endif  /*(VOS_EVT_NUM != 0)*/
 
@@ -130,13 +136,31 @@ struct tag_vosSemCB {
 };
 
 /* セマフォコントロールブロック変数宣言 */
+extern uint32_t			g_vosSemCB_Counter;
 extern vosSemCB_t       g_vosSemCB[VOS_SEM_NUM];
 #endif  /*(VOS_SEM_NUM != 0)*/
 
 
 /* プロトタイプ */
-extern void vosKernelInit(void);
+extern vosError_e vosKernelInit(void);
 extern vosError_e vosKernelStart(void);
 extern vosTaskHandle_t vosTaskCreate(void (*task)(void*), void *param, VOS_TASKPRI_e pri, size_t size, uint8_t *stack);
+extern vosTaskCB_t *vosTaskDeque(vosTaskQueHdr_t *queue);
+extern void vosTaskEnque(vosTaskQueHdr_t *queue, vosTaskCB_t *task);
+extern void vosTaskDispatch(vosTaskHandle_t task);
+extern bool vosTargetTaskDeque(vosTaskQueHdr_t *queue, vosTaskCB_t *target);
+
+#if (VOS_EVT_NUM != 0)
+extern vosEvtHandle_t vosEvtFlagCreate(uint32_t *evtflag_ptr);
+extern uint32_t vosEvtFlagWait(vosEvtHandle_t handle, uint32_t wait_bit);
+extern bool vosEvtFlagPost(vosEvtHandle_t handle, uint32_t post_bit);
+extern bool vosEvtFlagClear(vosEvtHandle_t handle, uint32_t clear_bit);
+#endif
+
+#if (VOS_SEM_NUM != 0)
+#endif
+
+/* Arm CMSIS interface */
+#define vosCycleGet()	vosCMSIS_GetDWTCycle()
 
 #endif /*_VOS_H_*/

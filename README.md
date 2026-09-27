@@ -535,6 +535,7 @@ struct tag_vosEvtCB {
 };
 
 /* コントロールブロック変数宣言 */
+uint32_t			g_vosEvtCB_Counter;
 vosEvtCB_t          g_vosEvtCB[VOS_EVT_NUM];
 ```
 

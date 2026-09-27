@@ -2,13 +2,14 @@
  * カーネル機能
  */
 #include "vos.h"
+#include "cmsis_if.h"
 
 /* カーネルコントロールブロック変数宣言 */
-vosKernelCB_t       g_vosKernelCB;
+ALIGN(16) vosKernelCB_t       g_vosKernelCB;
 /* タスクコントロールブロック変数宣言 */
-vosTaskCB_t         g_vosTaskCB[VOS_TASK_NUM];
+ALIGN(16) vosTaskCB_t         g_vosTaskCB[VOS_TASK_NUM];
 /* 次ディスパッチタスク */
-vosTaskCB_t*        g_vosDispatchTask;
+ALIGN(16) vosTaskCB_t*        g_vosDispatchTask;
 
 int32_t     g_vosCriticalCounter;         /* 割り込み抑止解除カウンタ */
 
@@ -59,6 +60,9 @@ void vosMemcpy(void *des, void *src, size_t size)
     }
 }
 
+/**
+ * vos functions
+ */
 static bool queue_empty(const vosTaskQueHdr_t *queue)
 {
     return (queue == NUL || queue->next_ptr == NUL /*|| queue->next_ptr == VOS_END_PTR*/);
@@ -218,19 +222,28 @@ void vosSysTickHandler(void)
 
 /**
  * [API] kernel init
+ * @note VOS_SYSTICK_HZにVOSユーザが要求するSysTick周波数を設定する必要がある
+ * It is necessary to set the SysTick frequency required by the VOS user to VOS_SYSTICK_HZ.
  */
-void vosKernelInit(void)
+vosError_e vosKernelInit(void)
 {
-	extern uint8_t _estack; /* Symbol defined in the linker script */
-	extern uint32_t _Min_Stack_Size; /* Symbol defined in the linker script */
-    vosMemset(&g_vosKernelCB, 0, sizeof(g_vosKernelCB));
+	extern uint8_t	_estack; 			/* Symbol defined in the linker script */
+	extern uint32_t	_Min_Stack_Size;	/* Symbol defined in the linker script */
+
+    vosCMSISInit();
+	vosMemset(&g_vosKernelCB, 0, sizeof(g_vosKernelCB));
     vosMemset(g_vosTaskCB, 0, sizeof(g_vosTaskCB));
     vosMemset(&g_vosIdleTaskCB, 0, sizeof(g_vosIdleTaskCB));
-    g_vosIdleTaskCB.stack_size = (uint32_t)&_estack - (uint32_t)&_Min_Stack_Size;
+    g_vosIdleTaskCB.stack_size = (uint32_t)&_Min_Stack_Size;
     g_vosIdleTaskCB.stack_top = (uint32_t*)&_estack;
 	g_vosIdleTaskCB.next_state = VOS_READY;
     g_vosIdleTaskCB.task = &vosIdleTask;
     g_vosKernelCB.run_task.next_ptr = &g_vosIdleTaskCB;
+#if (VOS_EVT_NUM != 0)
+    g_vosEvtCB_Counter = 0;
+    vosMemset(g_vosEvtCB, 0, sizeof(g_vosEvtCB));
+#endif
+    return VOS_OK;
 }
 
 /**
@@ -243,16 +256,15 @@ vosError_e vosKernelStart(void)
     if (g_vosKernelCB.start_kernel) {
         return VOS_INVALID_API;
     }
+    g_vosKernelCB.start_kernel = true;
 
     first = vosTaskDeque(&g_vosKernelCB.ready_que);
     if (first == NUL) {
         return VOS_NOTHING_TASK;
     }
     /* Control transfers to the first task when PendSV is serviced. */
-    //g_vosKernelCB.run_task.next_ptr = first;  // Setting in PendSV.
     vosTaskDispatch(first);
 
-    g_vosKernelCB.start_kernel = true;
     while(g_vosKernelCB.start_kernel)
         ;   // It might call the IDLE task.
     return VOS_OK;
